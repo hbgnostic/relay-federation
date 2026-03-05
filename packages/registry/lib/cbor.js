@@ -82,6 +82,59 @@ export function decodePayload (bytes) {
   return obj
 }
 
+/**
+ * Extract protocol prefix and CBOR payload from an OP_RETURN locking script.
+ * Handles the round-trip parsing issue where OP_RETURN causes the script parser
+ * to lump everything after OP_RETURN into one data blob.
+ *
+ * Script format: OP_FALSE OP_RETURN <pushdata prefix> <pushdata cbor>
+ *
+ * @param {LockingScript} lockingScript
+ * @returns {{ prefix: string, cborBytes: Uint8Array }}
+ */
+export function extractOpReturnData (lockingScript) {
+  const hex = lockingScript.toHex()
+  // Script starts with 006a (OP_FALSE OP_RETURN)
+  // Then pushdata for prefix, then pushdata for CBOR payload
+  let offset = 4 // skip 00 6a
+
+  // Read prefix push
+  const { data: prefixData, newOffset: afterPrefix } = readPushData(hex, offset)
+  const prefix = Buffer.from(prefixData).toString('utf8')
+
+  // Read CBOR push
+  const { data: cborData } = readPushData(hex, afterPrefix)
+
+  return { prefix, cborBytes: new Uint8Array(cborData) }
+}
+
+function readPushData (hex, offset) {
+  const opByte = parseInt(hex.slice(offset, offset + 2), 16)
+  offset += 2
+
+  let dataLen
+  if (opByte >= 1 && opByte <= 75) {
+    dataLen = opByte
+  } else if (opByte === 0x4c) { // OP_PUSHDATA1
+    dataLen = parseInt(hex.slice(offset, offset + 2), 16)
+    offset += 2
+  } else if (opByte === 0x4d) { // OP_PUSHDATA2
+    dataLen = parseInt(hex.slice(offset, offset + 2), 16) +
+              parseInt(hex.slice(offset + 2, offset + 4), 16) * 256
+    offset += 4
+  } else {
+    throw new Error(`unexpected opcode at offset ${offset - 2}: 0x${opByte.toString(16)}`)
+  }
+
+  const dataHex = hex.slice(offset, offset + dataLen * 2)
+  const data = []
+  for (let i = 0; i < dataHex.length; i += 2) {
+    data.push(parseInt(dataHex.slice(i, i + 2), 16))
+  }
+
+  return { data, newOffset: offset + dataLen * 2 }
+}
+
 /** Protocol prefix for OP_RETURN identification */
 export { PROTOCOL_PREFIX, VALID_CAPABILITIES }
 
