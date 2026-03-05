@@ -1,0 +1,13 @@
+{
+  "name": "@relay-federation/bridge",
+  "version": "0.1.0",
+  "description": "Bridge server — WebSocket peering, header sync, tx relay, CLI",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "relay-bridge": "./cli.js"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

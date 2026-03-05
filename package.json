@@ -1,0 +1,15 @@
+{
+  "name": "relay-federation",
+  "version": "0.1.0",
+  "description": "Federated SPV relay mesh — BSV developer infrastructure",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "author": "zcooL",
+  "license": "MIT"
+}

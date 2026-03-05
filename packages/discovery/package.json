@@ -1,0 +1,10 @@
+{
+  "name": "@relay-federation/discovery",
+  "version": "0.1.0",
+  "description": "Peer discovery — chain scanning, peer filtering, cache management",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

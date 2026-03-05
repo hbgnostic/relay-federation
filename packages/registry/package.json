@@ -1,0 +1,10 @@
+{
+  "name": "@relay-federation/registry",
+  "version": "0.1.0",
+  "description": "On-chain bridge registry — CBOR encoding, registration/deregistration tx builders",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
