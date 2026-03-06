@@ -63,10 +63,10 @@ describe('CBOR encoding', () => {
       )
     })
 
-    it('rejects non-wss endpoint', () => {
+    it('rejects non-ws endpoint', () => {
       assert.throws(
         () => encodeRegistration({ ...validRegistration, endpoint: 'http://example.com' }),
-        /endpoint must start with wss:\/\//
+        /endpoint must start with ws:\/\/ or wss:\/\//
       )
     })
 

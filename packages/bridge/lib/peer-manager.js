@@ -71,7 +71,7 @@ export class PeerManager extends EventEmitter {
     if (this.peers.has(pubkeyHex)) {
       // Already connected — close the duplicate
       socket.close()
-      return this.peers.get(pubkeyHex)
+      return null
     }
 
     if (this.peers.size >= this.maxPeers) {
@@ -212,7 +212,12 @@ export class PeerManager extends EventEmitter {
     })
 
     conn.on('close', () => {
-      this.peers.delete(conn.pubkeyHex)
+      // Only remove from map if the connection won't auto-reconnect.
+      // Keeping reconnecting peers in the map prevents gossip from
+      // creating duplicate PeerConnections for the same pubkey.
+      if (!conn._shouldReconnect || conn._destroyed) {
+        this.peers.delete(conn.pubkeyHex)
+      }
       this.emit('peer:disconnect', { pubkeyHex: conn.pubkeyHex, endpoint: conn.endpoint })
     })
 

@@ -74,6 +74,12 @@ async function cmdRegister () {
 
   const config = await loadConfig(dir)
 
+  if (!config.apiKey) {
+    console.log('Error: API key required for registration (broadcasts via SPV bridge).')
+    console.log('Set "apiKey" in config.json.')
+    process.exit(1)
+  }
+
   if (config.endpoint === 'wss://your-bridge.example.com:8333') {
     console.log('Error: Update your endpoint in config.json before registering.')
     process.exit(1)
@@ -86,11 +92,46 @@ async function cmdRegister () {
   console.log(`  Capabilities: ${config.capabilities.join(', ')}`)
   console.log(`  SPV Endpoint: ${config.spvEndpoint}`)
   console.log('')
-  console.log('On-chain registration requires:')
-  console.log('  - Funded wallet (stake bond + tx fees)')
-  console.log('  - Valid API key for SPV bridge access')
-  console.log('')
-  console.log('Broadcast support coming in Phase 2.')
+
+  try {
+    const { buildRegistrationTx } = await import('../registry/lib/registration.js')
+    const { PrivateKey } = await import('@bsv/sdk')
+    const address = PrivateKey.fromWif(config.wif).toPublicKey().toAddress()
+
+    // Fetch UTXOs from SPV bridge
+    const utxos = await fetchUtxos(config.spvEndpoint, config.apiKey, address)
+
+    if (!utxos.length) {
+      console.log('Error: No UTXOs found. Wallet needs funding for tx fees.')
+      process.exit(1)
+    }
+
+    // Use first UTXO txid as placeholder stake (real stake bonds are future)
+    const stakeTxid = new Uint8Array(Buffer.from(utxos[0].tx_hash, 'hex'))
+
+    // Build registration tx
+    const { txHex, txid } = await buildRegistrationTx({
+      wif: config.wif,
+      utxos,
+      endpoint: config.endpoint,
+      capabilities: config.capabilities,
+      versions: ['1.0'],
+      networkVersion: '1.0',
+      stakeTxid,
+      meshId: config.meshId
+    })
+
+    // Broadcast via SPV bridge
+    await broadcastTx(config.spvEndpoint, config.apiKey, txHex)
+
+    console.log('Registration broadcast successful!')
+    console.log(`  txid: ${txid}`)
+    console.log('')
+    console.log('Your bridge will appear in peer lists on next scan cycle.')
+  } catch (err) {
+    console.log(`Registration failed: ${err.message}`)
+    process.exit(1)
+  }
 }
 
 async function cmdStart () {
@@ -208,9 +249,10 @@ async function cmdStart () {
   // ── 7. Connect to peers ───────────────────────────────────
   let gossipStarted = false
 
-  // Start gossip after first peer connects
-  peerManager.on('peer:connect', ({ pubkeyHex }) => {
-    if (!gossipStarted) {
+  // Start gossip after hello exchange completes (not on peer:connect,
+  // which fires before hello is sent — causing gossip to race the handshake)
+  peerManager.on('peer:message', ({ pubkeyHex, message }) => {
+    if (!gossipStarted && message.type === 'hello') {
       gossipStarted = true
       gossipManager.start()
       gossipManager.requestPeersFromAll()

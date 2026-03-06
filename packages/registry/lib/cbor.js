@@ -28,8 +28,8 @@ export function encodeRegistration (payload) {
   if (!(obj.stake_txid instanceof Uint8Array) || obj.stake_txid.length !== 32) {
     throw new Error('stake_txid must be 32-byte Uint8Array')
   }
-  if (!obj.endpoint.startsWith('wss://')) {
-    throw new Error('endpoint must start with wss://')
+  if (!obj.endpoint.startsWith('ws://') && !obj.endpoint.startsWith('wss://')) {
+    throw new Error('endpoint must start with ws:// or wss://')
   }
   for (const cap of obj.capabilities) {
     if (!VALID_CAPABILITIES.includes(cap)) {

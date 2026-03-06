@@ -41,8 +41,14 @@ export async function scanRegistry (opts) {
     }
   }
 
-  // Step 3: Sort by height ascending (oldest first)
-  entries.sort((a, b) => a.height - b.height)
+  // Step 3: Sort by height ascending (oldest first).
+  // Height 0 = mempool (unconfirmed) — treat as newest so latest
+  // re-registrations take priority in buildPeerList().
+  entries.sort((a, b) => {
+    const ha = a.height === 0 ? Infinity : a.height
+    const hb = b.height === 0 ? Infinity : b.height
+    return ha - hb
+  })
 
   return entries
 }

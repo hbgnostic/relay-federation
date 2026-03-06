@@ -12,7 +12,7 @@
  * @returns {Promise<Array<{tx_hash: string, tx_pos: number, value: number, rawHex: string}>>}
  */
 export async function fetchUtxos (spvEndpoint, apiKey, address) {
-  const url = `${spvEndpoint}/api/address/${address}/utxos`
+  const url = `${spvEndpoint}/api/address/${address}/unspent`
   const res = await fetch(url, {
     headers: { 'x-api-key': apiKey }
   })
@@ -21,7 +21,14 @@ export async function fetchUtxos (spvEndpoint, apiKey, address) {
     throw new Error(`UTXO fetch failed: ${res.status} ${res.statusText}`)
   }
 
-  return res.json()
+  const utxos = await res.json()
+
+  // Fetch raw tx hex for each UTXO (needed for sourceTransaction in fee calc)
+  for (const utxo of utxos) {
+    utxo.rawHex = await fetchTxHex(spvEndpoint, apiKey, utxo.tx_hash)
+  }
+
+  return utxos
 }
 
 /**
@@ -33,7 +40,7 @@ export async function fetchUtxos (spvEndpoint, apiKey, address) {
  * @returns {Promise<object>} Broadcast result from the bridge
  */
 export async function broadcastTx (spvEndpoint, apiKey, txHex) {
-  const url = `${spvEndpoint}/api/tx/broadcast`
+  const url = `${spvEndpoint}/api/broadcast`
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -85,9 +92,15 @@ export async function fetchTxHex (spvEndpoint, apiKey, txid) {
     headers: { 'x-api-key': apiKey }
   })
 
-  if (!res.ok) {
-    throw new Error(`TX fetch failed: ${res.status} ${res.statusText}`)
+  if (res.ok) return res.text()
+
+  // Fallback to WhatsOnChain if primary endpoint doesn't support /hex
+  const wocUrl = `https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/hex`
+  const wocRes = await fetch(wocUrl)
+
+  if (!wocRes.ok) {
+    throw new Error(`TX fetch failed: ${res.status} ${res.statusText} (WoC fallback: ${wocRes.status})`)
   }
 
-  return res.text()
+  return wocRes.text()
 }
