@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
 
 /**
  * StatusServer — localhost-only HTTP server exposing bridge status.
@@ -178,6 +179,28 @@ export class StatusServer {
         } else if (req.method === 'GET' && (req.url === '/' || req.url === '/dashboard')) {
           res.writeHead(200, { 'Content-Type': 'text/html' })
           res.end(DASHBOARD_HTML)
+        } else if (req.method === 'POST' && req.url === '/broadcast') {
+          let body = ''
+          req.on('data', chunk => { body += chunk })
+          req.on('end', () => {
+            try {
+              const { rawHex } = JSON.parse(body)
+              if (!rawHex || typeof rawHex !== 'string') {
+                res.writeHead(400, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ error: 'rawHex required' }))
+                return
+              }
+              const buf = Buffer.from(rawHex, 'hex')
+              const hash = createHash('sha256').update(createHash('sha256').update(buf).digest()).digest()
+              const txid = Buffer.from(hash).reverse().toString('hex')
+              const sent = this._txRelay ? this._txRelay.broadcastTx(txid, rawHex) : 0
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ txid, peers: sent }))
+            } catch (e) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: e.message }))
+            }
+          })
         } else {
           res.writeHead(404)
           res.end('Not Found')
