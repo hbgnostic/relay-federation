@@ -286,6 +286,7 @@ async function cmdStart () {
     const onMessage = (msg) => {
       if (msg.type === 'challenge_response') {
         conn.removeListener('message', onMessage)
+        clearTimeout(timeout)
         const result = handshake.handleChallengeResponse(msg, nonce)
         if (result.error) {
           console.log(`Handshake failed with ${conn.pubkeyHex.slice(0, 16)}...: ${result.error}`)
@@ -296,11 +297,31 @@ async function cmdStart () {
         if (result.peerPubkey !== conn.pubkeyHex) {
           peerManager.peers.delete(conn.pubkeyHex)
           conn.pubkeyHex = result.peerPubkey
-          peerManager.peers.set(result.peerPubkey, conn)
-          console.log(`  Peer identified: ${result.peerPubkey.slice(0, 16)}... (v${result.selectedVersion})`)
         }
+
+        // Tie-break duplicate connections (inbound may have been accepted during handshake)
+        const existing = peerManager.peers.get(result.peerPubkey)
+        if (existing && existing !== conn) {
+          if (config.pubkeyHex > result.peerPubkey) {
+            // Higher pubkey drops outbound — keep existing inbound
+            console.log(`  Duplicate: keeping inbound from ${result.peerPubkey.slice(0, 16)}...`)
+            conn._shouldReconnect = false
+            conn.destroy()
+            return
+          }
+          // Lower pubkey keeps outbound — drop existing inbound
+          console.log(`  Duplicate: keeping outbound to ${result.peerPubkey.slice(0, 16)}...`)
+          existing._shouldReconnect = false
+          existing.destroy()
+        }
+
+        peerManager.peers.set(result.peerPubkey, conn)
+        console.log(`  Peer identified: ${result.peerPubkey.slice(0, 16)}... (v${result.selectedVersion})`)
+
         // Send verify to complete handshake
         conn.send(result.message)
+        // Handshake complete — now safe to announce peer:connect
+        peerManager.emit('peer:connect', { pubkeyHex: conn.pubkeyHex, endpoint: conn.endpoint })
       }
     }
     conn.on('message', onMessage)
@@ -314,8 +335,11 @@ async function cmdStart () {
     }, 10000)
     if (timeout.unref) timeout.unref()
 
-    // Clear timeout if handshake completes or connection closes
-    conn.once('close', () => clearTimeout(timeout))
+    // Clean up on close — prevent stale handler on reconnect
+    conn.once('close', () => {
+      clearTimeout(timeout)
+      conn.removeListener('message', onMessage)
+    })
   }
 
   // ── 5. Start server ───────────────────────────────────────

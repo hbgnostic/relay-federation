@@ -188,6 +188,12 @@ export class DataValidator extends EventEmitter {
   }
 
   _validateHeaderAnnounce (pubkeyHex, msg) {
+    // height: -1 means "no headers yet" — valid, skip hash check
+    if (msg.height === -1) {
+      this.scorer.recordGoodData(pubkeyHex)
+      return
+    }
+
     if (typeof msg.height !== 'number' || msg.height < 0) {
       this.scorer.recordBadData(pubkeyHex)
       this.emit('validation:fail', { pubkeyHex, type: 'header_announce', reason: 'invalid_height' })
