@@ -253,6 +253,16 @@ export class BSVPeer extends EventEmitter {
   }
 
   /**
+   * Request peer addresses from this peer (getaddr P2P message).
+   * Peer responds with 'addr' message containing known node IPs.
+   */
+  requestAddr () {
+    if (this._handshakeComplete) {
+      this._sendMessage('getaddr', Buffer.alloc(0))
+    }
+  }
+
+  /**
    * Fetch a transaction by txid from this peer.
    * @param {string} txid
    * @param {number} [timeoutMs=10000]
@@ -410,10 +420,12 @@ export class BSVPeer extends EventEmitter {
       case 'getdata':
         this._onGetdata(payload)
         break
+      case 'addr':
+        this._onAddr(payload)
+        break
       case 'sendheaders':
       case 'sendcmpct':
       case 'feefilter':
-      case 'addr':
       case 'protoconf':
       case 'authch':
       case 'authresp':
@@ -572,6 +584,38 @@ export class BSVPeer extends EventEmitter {
 
   _onPing (payload) {
     this._sendMessage('pong', payload)
+  }
+
+  _onAddr (payload) {
+    if (payload.length < 1) return
+    const countInfo = readVarInt(payload, 0)
+    const count = countInfo.value
+    let offset = countInfo.size
+    const addrs = []
+
+    for (let i = 0; i < count && offset + 30 <= payload.length; i++) {
+      // 4 bytes timestamp + 8 bytes services + 16 bytes IP + 2 bytes port
+      offset += 4 // skip timestamp
+      offset += 8 // skip services
+
+      // IPv4-mapped IPv6: last 4 bytes of 16-byte IP field
+      const isIPv4 = payload[offset + 10] === 0xff && payload[offset + 11] === 0xff
+      if (isIPv4) {
+        const host = `${payload[offset + 12]}.${payload[offset + 13]}.${payload[offset + 14]}.${payload[offset + 15]}`
+        offset += 16
+        const port = payload.readUInt16BE(offset)
+        offset += 2
+        if (port === 8333 && host !== '0.0.0.0' && host !== '127.0.0.1') {
+          addrs.push({ host, port })
+        }
+      } else {
+        offset += 16 + 2 // skip IPv6 + port
+      }
+    }
+
+    if (addrs.length > 0) {
+      this.emit('addr', { addrs })
+    }
   }
 
   _onTx (payload) {

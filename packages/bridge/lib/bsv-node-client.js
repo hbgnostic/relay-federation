@@ -32,7 +32,6 @@ const DEFAULT_SEEDS = [
 ]
 
 const DEFAULT_PORT = 8333
-const DEFAULT_MAX_PEERS = 8
 const MAINTAIN_INTERVAL_MS = 60000
 
 const DEFAULT_CHECKPOINT = {
@@ -47,7 +46,6 @@ export class BSVNodeClient extends EventEmitter {
    * @param {string[]} [opts.seeds] — DNS seeds (default: 3 BSV seeds)
    * @param {number} [opts.port] — BSV node port (default 8333)
    * @param {{ height, hash, prevHash }} [opts.checkpoint] — Starting checkpoint
-   * @param {number} [opts.maxPeers] — Max concurrent peers (default 8)
    * @param {number} [opts.syncIntervalMs] — Header sync interval (default 30s)
    * @param {number} [opts.pingIntervalMs] — Keepalive interval (default 120s)
    */
@@ -56,7 +54,6 @@ export class BSVNodeClient extends EventEmitter {
     this._seeds = opts.seeds || DEFAULT_SEEDS
     this._port = opts.port || DEFAULT_PORT
     this._checkpoint = opts.checkpoint || DEFAULT_CHECKPOINT
-    this._maxPeers = opts.maxPeers || DEFAULT_MAX_PEERS
     this._syncIntervalMs = opts.syncIntervalMs || 30000
     this._pingIntervalMs = opts.pingIntervalMs || 120000
 
@@ -71,7 +68,7 @@ export class BSVNodeClient extends EventEmitter {
   }
 
   /**
-   * Discover BSV nodes via DNS seeds and connect to up to maxPeers.
+   * Discover BSV nodes via DNS seeds and connect to all discovered peers.
    * Emits 'connected' and 'handshake' events as peers come online.
    * Does not block — connections established in background.
    */
@@ -86,10 +83,8 @@ export class BSVNodeClient extends EventEmitter {
       [addresses[i], addresses[j]] = [addresses[j], addresses[i]]
     }
 
-    // Try connecting to peers (fire-and-forget, events fire when ready)
-    const targets = addresses.slice(0, this._maxPeers * 2)
-    for (const addr of targets) {
-      if (this.connectedCount >= this._maxPeers) break
+    // Connect to all discovered peers
+    for (const addr of addresses) {
       this._connectToPeer(addr.host, addr.port)
     }
 
@@ -254,7 +249,19 @@ export class BSVNodeClient extends EventEmitter {
     })
 
     peer.on('connected', (data) => this.emit('connected', data))
-    peer.on('handshake', (data) => this.emit('handshake', data))
+    peer.on('handshake', (data) => {
+      // Ask this peer for addresses of other nodes it knows
+      peer.requestAddr()
+      this.emit('handshake', data)
+    })
+
+    peer.on('addr', ({ addrs }) => {
+      for (const addr of addrs) {
+        if (!this._peers.has(addr.host) && !this._destroyed) {
+          this._connectToPeer(addr.host, addr.port)
+        }
+      }
+    })
 
     peer.on('disconnected', (data) => {
       this._peers.delete(host)
@@ -290,27 +297,15 @@ export class BSVNodeClient extends EventEmitter {
       }
     }
 
-    // Reconnect if below target
-    if (this._peers.size < this._maxPeers) {
-      try {
-        const addresses = await this._discoverPeers()
-
-        // Shuffle
-        for (let i = addresses.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [addresses[i], addresses[j]] = [addresses[j], addresses[i]]
-        }
-
-        // Filter already-connected hosts
-        const newAddrs = addresses.filter(a => !this._peers.has(a.host))
-
-        for (const addr of newAddrs) {
-          if (this._peers.size >= this._maxPeers) break
-          this._connectToPeer(addr.host, addr.port)
-        }
-      } catch {
-        // DNS failed during maintenance — try again next cycle
+    // Reconnect to any new peers discovered
+    try {
+      const addresses = await this._discoverPeers()
+      const newAddrs = addresses.filter(a => !this._peers.has(a.host))
+      for (const addr of newAddrs) {
+        this._connectToPeer(addr.host, addr.port)
       }
+    } catch {
+      // DNS failed during maintenance — try again next cycle
     }
   }
 }

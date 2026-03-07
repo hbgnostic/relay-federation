@@ -682,11 +682,9 @@ describe('BSVNodeClient (pool)', () => {
 
   it('initializes with custom options', () => {
     const client = new BSVNodeClient({
-      maxPeers: 4,
       checkpoint: { height: 100, hash: 'aabb', prevHash: '1122' }
     })
     assert.equal(client.bestHeight, 100)
-    assert.equal(client._maxPeers, 4)
     client.disconnect()
   })
 
