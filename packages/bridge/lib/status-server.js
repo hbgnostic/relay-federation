@@ -87,6 +87,16 @@ function render(s) {
         '<div class="row"><span class="label">Mempool</span><span class="value">' + s.txs.mempool + ' txs</span></div>' +
         '<div class="row"><span class="label">Seen</span><span class="value">' + s.txs.seen + ' txs</span></div>' +
       '</div>' +
+      '<div class="card">' +
+        '<h2>BSV Node</h2>' +
+        '<div class="row"><span class="label">Status</span><span class="value"><span class="dot ' + (s.bsvNode.connected ? 'green' : 'red') + '"></span>' + (s.bsvNode.connected ? 'Connected' : 'Disconnected') + '</span></div>' +
+        '<div class="row"><span class="label">Host</span><span class="value mono">' + (s.bsvNode.host || '-') + '</span></div>' +
+        '<div class="row"><span class="label">Height</span><span class="value">' + (s.bsvNode.height || '-') + '</span></div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<h2>Wallet</h2>' +
+        '<div style="text-align:center;padding:8px 0"><span class="big">' + (s.wallet.balanceSats !== null ? s.wallet.balanceSats.toLocaleString() : '-') + '</span><span style="color:#484f58"> sats</span></div>' +
+      '</div>' +
       '<div class="card full">' +
         '<h2>Peers (' + s.peers.connected + '/' + s.peers.max + ')</h2>' +
         peers +
@@ -116,6 +126,8 @@ export class StatusServer {
    * @param {import('./header-relay.js').HeaderRelay} [opts.headerRelay]
    * @param {import('./tx-relay.js').TxRelay} [opts.txRelay]
    * @param {object} [opts.config] — Bridge config (pubkeyHex, endpoint, meshId)
+   * @param {object} [opts.bsvNodeClient] — BSV P2P node client (2.26)
+   * @param {object} [opts.store] — PersistentStore for wallet balance (2.27)
    */
   constructor (opts = {}) {
     this._port = opts.port || 9333
@@ -125,15 +137,17 @@ export class StatusServer {
     this._config = opts.config || {}
     this._scorer = opts.scorer || null
     this._peerHealth = opts.peerHealth || null
+    this._bsvNodeClient = opts.bsvNodeClient || null
+    this._store = opts.store || null
     this._startedAt = Date.now()
     this._server = null
   }
 
   /**
    * Build the status object from current bridge state.
-   * @returns {object}
+   * @returns {Promise<object>}
    */
-  getStatus () {
+  async getStatus () {
     const peers = []
     if (this._peerManager) {
       for (const [pubkeyHex, conn] of this._peerManager.peers) {
@@ -152,7 +166,7 @@ export class StatusServer {
       }
     }
 
-    return {
+    const status = {
       bridge: {
         pubkeyHex: this._config.pubkeyHex || null,
         endpoint: this._config.endpoint || null,
@@ -172,8 +186,22 @@ export class StatusServer {
       txs: {
         mempool: this._txRelay ? this._txRelay.mempool.size : 0,
         seen: this._txRelay ? this._txRelay.seen.size : 0
+      },
+      bsvNode: {
+        connected: this._bsvNodeClient ? this._bsvNodeClient._connected : false,
+        host: this._bsvNodeClient ? this._bsvNodeClient._host : null,
+        height: this._bsvNodeClient ? (this._bsvNodeClient._peerStartHeight || null) : null
+      },
+      wallet: {
+        balanceSats: null
       }
     }
+
+    if (this._store) {
+      try { status.wallet.balanceSats = await this._store.getBalance() } catch {}
+    }
+
+    return status
   }
 
   /**
@@ -183,10 +211,25 @@ export class StatusServer {
   start () {
     return new Promise((resolve, reject) => {
       this._server = createServer((req, res) => {
+        // CORS headers for federation dashboard
+        res.setHeader('Access-Control-Allow-Origin', '*')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204)
+          res.end()
+          return
+        }
+
         if (req.method === 'GET' && req.url === '/status') {
-          const status = this.getStatus()
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify(status))
+          this.getStatus().then(status => {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(status))
+          }).catch(() => {
+            res.writeHead(500)
+            res.end('Internal Server Error')
+          })
         } else if (req.method === 'GET' && (req.url === '/' || req.url === '/dashboard')) {
           res.writeHead(200, { 'Content-Type': 'text/html' })
           res.end(DASHBOARD_HTML)
@@ -218,7 +261,7 @@ export class StatusServer {
         }
       })
 
-      this._server.listen(this._port, '127.0.0.1', () => resolve())
+      this._server.listen(this._port, '0.0.0.0', () => resolve())
       this._server.on('error', reject)
     })
   }

@@ -152,6 +152,10 @@ export class BSVNodeClient extends EventEmitter {
     this._peerStartHeight = 0
 
     this._syncing = false
+
+    // Transaction tracking (2.19-2.21)
+    this._pendingTxRequests = new Map() // txid → { resolve, reject, timer }
+    this._knownTxs = new Map()         // txid → rawHex (recently broadcast, for serving getdata)
   }
 
   /**
@@ -239,6 +243,56 @@ export class BSVNodeClient extends EventEmitter {
       this._bestHeight = height
       this._bestHash = hash
     }
+  }
+
+  /**
+   * Fetch a transaction by txid from the connected BSV node.
+   * @param {string} txid — display-format hex (64 chars)
+   * @param {number} [timeoutMs=10000] — reject after this many ms
+   * @returns {Promise<{ txid: string, rawHex: string }>}
+   */
+  getTx (txid, timeoutMs = 10000) {
+    if (!this._handshakeComplete) {
+      return Promise.reject(new Error('not connected to BSV node'))
+    }
+
+    // Already have a pending request for this txid
+    if (this._pendingTxRequests.has(txid)) {
+      return Promise.reject(new Error(`already fetching tx ${txid.slice(0, 16)}...`))
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingTxRequests.delete(txid)
+        reject(new Error(`timeout fetching tx ${txid.slice(0, 16)}...`))
+      }, timeoutMs)
+
+      this._pendingTxRequests.set(txid, { resolve, reject, timer })
+
+      // Build getdata message: [varint count=1] [type=1 MSG_TX u32LE] [hash 32B internal]
+      const payload = Buffer.alloc(37)
+      payload[0] = 1 // varint count = 1
+      payload.writeUInt32LE(1, 1) // MSG_TX = 1
+      hashToInternal(txid).copy(payload, 5) // 32-byte hash in internal order
+      this._sendMessage('getdata', payload)
+    })
+  }
+
+  /**
+   * Broadcast a raw transaction to the connected BSV node.
+   * @param {string} rawTxHex — raw transaction hex
+   * @returns {string} txid (display format)
+   */
+  broadcastTx (rawTxHex) {
+    const txBuffer = Buffer.from(rawTxHex, 'hex')
+    const txid = internalToHash(sha256d(txBuffer))
+
+    // Cache briefly so we can serve getdata requests
+    this._knownTxs.set(txid, rawTxHex)
+    setTimeout(() => { this._knownTxs.delete(txid) }, 60000)
+
+    this._sendMessage('tx', txBuffer)
+    return txid
   }
 
   /** Current best height */
@@ -351,6 +405,15 @@ export class BSVNodeClient extends EventEmitter {
         break
       case 'ping':
         this._onPing(payload)
+        break
+      case 'tx':
+        this._onTx(payload)
+        break
+      case 'notfound':
+        this._onNotfound(payload)
+        break
+      case 'getdata':
+        this._onGetdata(payload)
         break
       case 'sendheaders':
         // BSV nodes may send this — just acknowledge
@@ -500,13 +563,17 @@ export class BSVNodeClient extends EventEmitter {
     const countInfo = readVarInt(payload, 0)
     let offset = countInfo.size
     let hasBlock = false
+    const txids = []
 
     for (let i = 0; i < countInfo.value; i++) {
       if (offset + 36 > payload.length) break
       const invType = payload.readUInt32LE(offset)
-      // type 2 = MSG_BLOCK
-      if (invType === 2) {
+      const hashBuf = payload.subarray(offset + 4, offset + 36)
+
+      if (invType === 2) { // MSG_BLOCK
         hasBlock = true
+      } else if (invType === 1) { // MSG_TX
+        txids.push(internalToHash(hashBuf))
       }
       offset += 36
     }
@@ -515,11 +582,74 @@ export class BSVNodeClient extends EventEmitter {
     if (hasBlock) {
       this.syncHeaders()
     }
+
+    // Emit tx inventory so callers can decide to fetch
+    if (txids.length > 0) {
+      this.emit('tx:inv', { txids })
+    }
   }
 
   _onPing (payload) {
     // Respond with pong using the same nonce
     this._sendMessage('pong', payload)
+  }
+
+  _onTx (payload) {
+    const txid = internalToHash(sha256d(payload))
+    const rawHex = payload.toString('hex')
+    this.emit('tx', { txid, rawHex })
+
+    // Resolve pending getTx request if any
+    const pending = this._pendingTxRequests.get(txid)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this._pendingTxRequests.delete(txid)
+      pending.resolve({ txid, rawHex })
+    }
+  }
+
+  _onNotfound (payload) {
+    if (payload.length < 1) return
+    const countInfo = readVarInt(payload, 0)
+    let offset = countInfo.size
+
+    for (let i = 0; i < countInfo.value; i++) {
+      if (offset + 36 > payload.length) break
+      const invType = payload.readUInt32LE(offset)
+      const hashBuf = payload.subarray(offset + 4, offset + 36)
+      offset += 36
+
+      if (invType === 1) { // MSG_TX
+        const txid = internalToHash(hashBuf)
+        const pending = this._pendingTxRequests.get(txid)
+        if (pending) {
+          clearTimeout(pending.timer)
+          this._pendingTxRequests.delete(txid)
+          pending.reject(new Error(`tx not found: ${txid.slice(0, 16)}...`))
+        }
+      }
+    }
+  }
+
+  _onGetdata (payload) {
+    if (payload.length < 1) return
+    const countInfo = readVarInt(payload, 0)
+    let offset = countInfo.size
+
+    for (let i = 0; i < countInfo.value; i++) {
+      if (offset + 36 > payload.length) break
+      const invType = payload.readUInt32LE(offset)
+      const hashBuf = payload.subarray(offset + 4, offset + 36)
+      offset += 36
+
+      if (invType === 1) { // MSG_TX
+        const txid = internalToHash(hashBuf)
+        const rawHex = this._knownTxs.get(txid)
+        if (rawHex) {
+          this._sendMessage('tx', Buffer.from(rawHex, 'hex'))
+        }
+      }
+    }
   }
 
   // ── Private: message building ──────────────────────────────

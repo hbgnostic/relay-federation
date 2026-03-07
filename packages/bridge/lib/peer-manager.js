@@ -168,7 +168,7 @@ export class PeerManager extends EventEmitter {
 
             // If cryptographic handshake is available, use it
             if (opts.handshake && msg.nonce && Array.isArray(msg.versions)) {
-              const result = opts.handshake.handleHello(msg)
+              const result = opts.handshake.handleHello(msg, opts.registeredPubkeys || null)
               if (result.error) {
                 ws.send(JSON.stringify({ type: 'error', error: result.error }))
                 ws.close()
@@ -263,7 +263,10 @@ export class PeerManager extends EventEmitter {
       // Keeping reconnecting peers in the map prevents gossip from
       // creating duplicate PeerConnections for the same pubkey.
       if (!conn._shouldReconnect || conn._destroyed) {
-        this.peers.delete(conn.pubkeyHex)
+        // Only delete if the map still holds THIS connection (not a replacement)
+        if (this.peers.get(conn.pubkeyHex) === conn) {
+          this.peers.delete(conn.pubkeyHex)
+        }
       }
       this.emit('peer:disconnect', { pubkeyHex: conn.pubkeyHex, endpoint: conn.endpoint })
     })

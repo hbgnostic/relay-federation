@@ -23,9 +23,12 @@ export function defaultConfigDir () {
 export async function initConfig (dir = DEFAULT_DIR) {
   const privKey = PrivateKey.fromRandom()
 
+  const address = privKey.toPublicKey().toAddress()
+
   const config = {
     wif: privKey.toWif(),
     pubkeyHex: privKey.toPublicKey().toString(),
+    address,
     endpoint: 'wss://your-bridge.example.com:8333',
     meshId: 'indelible',
     capabilities: ['tx_relay', 'header_sync', 'broadcast', 'address_history'],

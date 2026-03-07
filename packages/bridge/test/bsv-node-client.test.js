@@ -367,4 +367,317 @@ describe('BSVNodeClient', () => {
     assert.equal(client._destroyed, true)
     assert.equal(client._connected, false)
   })
+
+  // ── P2P Transaction Capability (2.19-2.21) ──────────────────
+
+  it('getTx rejects when not connected', async () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+    // _handshakeComplete is false by default
+    await assert.rejects(
+      () => client.getTx('aa'.repeat(32)),
+      { message: 'not connected to BSV node' }
+    )
+  })
+
+  it('getTx sends getdata MSG_TX and resolves on tx response', async () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    const sent = []
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: (data) => { sent.push(data) },
+      destroy: () => {}
+    }
+
+    // Create a fake raw tx (just some bytes)
+    const fakeTxBytes = Buffer.from('01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0704ffff001d0104ffffffff0100f2052a0100000043410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac00000000', 'hex')
+    const expectedTxid = internalToHash(sha256d(fakeTxBytes))
+
+    // Start getTx request
+    const txPromise = client.getTx(expectedTxid)
+
+    // Verify getdata was sent
+    assert.ok(sent.length > 0)
+    const getdataCmd = sent[0].subarray(4, 16).toString('ascii').replace(/\0/g, '')
+    assert.equal(getdataCmd, 'getdata')
+
+    // Parse getdata payload: varint(1) + type(u32LE) + hash(32B)
+    const getdataPayload = sent[0].subarray(24)
+    assert.equal(getdataPayload[0], 1) // count = 1
+    assert.equal(getdataPayload.readUInt32LE(1), 1) // MSG_TX = 1
+    const requestedHash = internalToHash(getdataPayload.subarray(5, 37))
+    assert.equal(requestedHash, expectedTxid)
+
+    // Simulate receiving the tx response
+    const txMsg = buildMessage('tx', fakeTxBytes)
+    client._onData(txMsg)
+
+    const result = await txPromise
+    assert.equal(result.txid, expectedTxid)
+    assert.equal(result.rawHex, fakeTxBytes.toString('hex'))
+  })
+
+  it('getTx rejects on timeout', async () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: () => {},
+      destroy: () => {}
+    }
+
+    await assert.rejects(
+      () => client.getTx('bb'.repeat(32), 50), // 50ms timeout
+      { message: /timeout fetching tx/ }
+    )
+
+    // Pending request should be cleaned up
+    assert.equal(client._pendingTxRequests.size, 0)
+  })
+
+  it('getTx rejects on notfound response', async () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: () => {},
+      destroy: () => {}
+    }
+
+    const txid = 'cc'.repeat(32)
+    const txPromise = client.getTx(txid)
+
+    // Build notfound response: [varint count=1] [type=1 MSG_TX] [hash 32B internal]
+    const notfoundPayload = Buffer.alloc(37)
+    notfoundPayload[0] = 1
+    notfoundPayload.writeUInt32LE(1, 1) // MSG_TX
+    hashToInternal(txid).copy(notfoundPayload, 5)
+    const notfoundMsg = buildMessage('notfound', notfoundPayload)
+    client._onData(notfoundMsg)
+
+    await assert.rejects(
+      () => txPromise,
+      { message: /tx not found/ }
+    )
+
+    assert.equal(client._pendingTxRequests.size, 0)
+  })
+
+  it('getTx rejects duplicate request for same txid', async () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: () => {},
+      destroy: () => {}
+    }
+
+    const txid = 'dd'.repeat(32)
+    // First request (don't await — it'll timeout)
+    const p1 = client.getTx(txid, 200)
+    // Second request for same txid should reject immediately
+    await assert.rejects(
+      () => client.getTx(txid),
+      { message: /already fetching tx/ }
+    )
+
+    // Clean up the first request
+    await assert.rejects(() => p1, { message: /timeout/ })
+  })
+
+  it('_onTx emits tx event for unsolicited transactions', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = { write: () => {}, destroy: () => {} }
+
+    const fakeTxBytes = Buffer.alloc(64, 0xab)
+    const expectedTxid = internalToHash(sha256d(fakeTxBytes))
+
+    let emittedTx = null
+    client.on('tx', (tx) => { emittedTx = tx })
+
+    const txMsg = buildMessage('tx', fakeTxBytes)
+    client._onData(txMsg)
+
+    assert.ok(emittedTx)
+    assert.equal(emittedTx.txid, expectedTxid)
+    assert.equal(emittedTx.rawHex, fakeTxBytes.toString('hex'))
+  })
+
+  it('broadcastTx sends tx message and returns txid', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    const sent = []
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: (data) => { sent.push(data) },
+      destroy: () => {}
+    }
+
+    const fakeTxHex = Buffer.alloc(64, 0xcd).toString('hex')
+    const expectedTxid = internalToHash(sha256d(Buffer.from(fakeTxHex, 'hex')))
+
+    const txid = client.broadcastTx(fakeTxHex)
+
+    assert.equal(txid, expectedTxid)
+
+    // Should have sent a tx message
+    assert.ok(sent.length > 0)
+    const txCmd = sent[0].subarray(4, 16).toString('ascii').replace(/\0/g, '')
+    assert.equal(txCmd, 'tx')
+
+    // Payload should be the raw tx bytes
+    const txPayload = sent[0].subarray(24)
+    assert.equal(txPayload.toString('hex'), fakeTxHex)
+
+    // Should be cached in _knownTxs
+    assert.equal(client._knownTxs.get(txid), fakeTxHex)
+  })
+
+  it('_onGetdata serves cached tx from _knownTxs', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    const sent = []
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: (data) => { sent.push(data) },
+      destroy: () => {}
+    }
+
+    // Broadcast a tx first (caches it in _knownTxs)
+    const fakeTxHex = Buffer.alloc(32, 0xef).toString('hex')
+    const txid = client.broadcastTx(fakeTxHex)
+    sent.length = 0 // clear sent (the broadcast tx message)
+
+    // Build getdata request for that txid
+    const getdataPayload = Buffer.alloc(37)
+    getdataPayload[0] = 1
+    getdataPayload.writeUInt32LE(1, 1) // MSG_TX
+    hashToInternal(txid).copy(getdataPayload, 5)
+    const getdataMsg = buildMessage('getdata', getdataPayload)
+    client._onData(getdataMsg)
+
+    // Should have responded with the cached tx
+    assert.ok(sent.length > 0)
+    const respCmd = sent[0].subarray(4, 16).toString('ascii').replace(/\0/g, '')
+    assert.equal(respCmd, 'tx')
+    const respPayload = sent[0].subarray(24)
+    assert.equal(respPayload.toString('hex'), fakeTxHex)
+  })
+
+  it('_onGetdata ignores unknown txids', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    const sent = []
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: (data) => { sent.push(data) },
+      destroy: () => {}
+    }
+
+    // Build getdata for a txid we don't have
+    const getdataPayload = Buffer.alloc(37)
+    getdataPayload[0] = 1
+    getdataPayload.writeUInt32LE(1, 1)
+    Buffer.alloc(32, 0xff).copy(getdataPayload, 5)
+    const getdataMsg = buildMessage('getdata', getdataPayload)
+    client._onData(getdataMsg)
+
+    // Should not have sent anything
+    assert.equal(sent.length, 0)
+  })
+
+  it('_onInv emits tx:inv for MSG_TX inventory', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = { write: () => {}, destroy: () => {} }
+
+    let emittedInv = null
+    client.on('tx:inv', (inv) => { emittedInv = inv })
+
+    // Build inv with 2 tx items
+    const invPayload = Buffer.alloc(1 + 36 * 2)
+    invPayload[0] = 2 // count = 2
+    invPayload.writeUInt32LE(1, 1) // MSG_TX
+    hashToInternal('aa'.repeat(32)).copy(invPayload, 5)
+    invPayload.writeUInt32LE(1, 37) // MSG_TX
+    hashToInternal('bb'.repeat(32)).copy(invPayload, 41)
+
+    const invMsg = buildMessage('inv', invPayload)
+    client._onData(invMsg)
+
+    assert.ok(emittedInv)
+    assert.equal(emittedInv.txids.length, 2)
+    assert.equal(emittedInv.txids[0], 'aa'.repeat(32))
+    assert.equal(emittedInv.txids[1], 'bb'.repeat(32))
+  })
+
+  it('_onInv handles mixed block and tx inventory', () => {
+    client = new BSVNodeClient({
+      checkpoint: { height: 100, hash: '00'.repeat(32), prevHash: '11'.repeat(32) }
+    })
+
+    const sent = []
+    client._connected = true
+    client._handshakeComplete = true
+    client._socket = {
+      write: (data) => { sent.push(data) },
+      destroy: () => {}
+    }
+
+    let emittedInv = null
+    client.on('tx:inv', (inv) => { emittedInv = inv })
+
+    // Build inv with 1 block + 1 tx
+    const invPayload = Buffer.alloc(1 + 36 * 2)
+    invPayload[0] = 2 // count = 2
+    invPayload.writeUInt32LE(2, 1) // MSG_BLOCK
+    Buffer.alloc(32, 0x11).copy(invPayload, 5)
+    invPayload.writeUInt32LE(1, 37) // MSG_TX
+    hashToInternal('ee'.repeat(32)).copy(invPayload, 41)
+
+    const invMsg = buildMessage('inv', invPayload)
+    client._onData(invMsg)
+
+    // Should have triggered header sync (for block)
+    assert.ok(sent.length > 0)
+    const cmd = sent[0].subarray(4, 16).toString('ascii').replace(/\0/g, '')
+    assert.equal(cmd, 'getheaders')
+
+    // Should have emitted tx:inv (for tx)
+    assert.ok(emittedInv)
+    assert.equal(emittedInv.txids.length, 1)
+    assert.equal(emittedInv.txids[0], 'ee'.repeat(32))
+  })
 })

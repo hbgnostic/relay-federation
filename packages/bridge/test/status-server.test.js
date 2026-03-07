@@ -51,9 +51,9 @@ describe('StatusServer', () => {
     }
   })
 
-  it('getStatus returns bridge identity', () => {
+  it('getStatus returns bridge identity', async () => {
     server = new StatusServer({ config: TEST_CONFIG })
-    const status = server.getStatus()
+    const status = await server.getStatus()
 
     assert.equal(status.bridge.pubkeyHex, TEST_CONFIG.pubkeyHex)
     assert.equal(status.bridge.endpoint, TEST_CONFIG.endpoint)
@@ -62,7 +62,7 @@ describe('StatusServer', () => {
     assert.ok(status.bridge.uptimeSeconds >= 0)
   })
 
-  it('getStatus returns peer info', () => {
+  it('getStatus returns peer info', async () => {
     const pm = createMockPeerManager()
     pm.peers.set('bb'.repeat(33), {
       pubkeyHex: 'bb'.repeat(33),
@@ -76,7 +76,7 @@ describe('StatusServer', () => {
     })
 
     server = new StatusServer({ peerManager: pm, config: TEST_CONFIG })
-    const status = server.getStatus()
+    const status = await server.getStatus()
 
     assert.equal(status.peers.connected, 1) // only one with connected=true
     assert.equal(status.peers.max, 20)
@@ -86,7 +86,7 @@ describe('StatusServer', () => {
     assert.equal(status.peers.list[1].connected, false)
   })
 
-  it('getStatus returns header info', () => {
+  it('getStatus returns header info', async () => {
     const hr = createMockHeaderRelay()
     hr.bestHeight = 100
     hr.bestHash = 'dd'.repeat(32)
@@ -94,14 +94,14 @@ describe('StatusServer', () => {
     hr.headers.set(100, { height: 100, hash: 'dd'.repeat(32), prevHash: 'cc'.repeat(32) })
 
     server = new StatusServer({ headerRelay: hr, config: TEST_CONFIG })
-    const status = server.getStatus()
+    const status = await server.getStatus()
 
     assert.equal(status.headers.bestHeight, 100)
     assert.equal(status.headers.bestHash, 'dd'.repeat(32))
     assert.equal(status.headers.count, 2)
   })
 
-  it('getStatus returns tx info', () => {
+  it('getStatus returns tx info', async () => {
     const tr = createMockTxRelay()
     tr.mempool.set('tx1', 'aabb')
     tr.mempool.set('tx2', 'ccdd')
@@ -110,15 +110,15 @@ describe('StatusServer', () => {
     tr.seen.add('tx3') // seen but not in mempool (evicted)
 
     server = new StatusServer({ txRelay: tr, config: TEST_CONFIG })
-    const status = server.getStatus()
+    const status = await server.getStatus()
 
     assert.equal(status.txs.mempool, 2)
     assert.equal(status.txs.seen, 3)
   })
 
-  it('getStatus works with no components (null safety)', () => {
+  it('getStatus works with no components (null safety)', async () => {
     server = new StatusServer({})
-    const status = server.getStatus()
+    const status = await server.getStatus()
 
     assert.equal(status.bridge.pubkeyHex, null)
     assert.equal(status.bridge.endpoint, null)
@@ -135,9 +135,9 @@ describe('StatusServer', () => {
   it('uptime increases over time', async () => {
     server = new StatusServer({ config: TEST_CONFIG })
 
-    const s1 = server.getStatus()
+    const s1 = await server.getStatus()
     await new Promise(resolve => setTimeout(resolve, 10))
-    const s2 = server.getStatus()
+    const s2 = await server.getStatus()
 
     assert.ok(s2.bridge.uptimeSeconds >= s1.bridge.uptimeSeconds)
   })
@@ -208,7 +208,7 @@ describe('StatusServer', () => {
     const pm = createMockPeerManager()
     server = new StatusServer({ peerManager: pm, config: TEST_CONFIG })
 
-    assert.equal(server.getStatus().peers.connected, 0)
+    assert.equal((await server.getStatus()).peers.connected, 0)
 
     pm.peers.set('bb'.repeat(33), {
       pubkeyHex: 'bb'.repeat(33),
@@ -216,21 +216,21 @@ describe('StatusServer', () => {
       connected: true
     })
 
-    assert.equal(server.getStatus().peers.connected, 1)
-    assert.equal(server.getStatus().peers.list.length, 1)
+    assert.equal((await server.getStatus()).peers.connected, 1)
+    assert.equal((await server.getStatus()).peers.list.length, 1)
   })
 
-  it('reflects live header changes', () => {
+  it('reflects live header changes', async () => {
     const hr = createMockHeaderRelay()
     server = new StatusServer({ headerRelay: hr, config: TEST_CONFIG })
 
-    assert.equal(server.getStatus().headers.bestHeight, -1)
+    assert.equal((await server.getStatus()).headers.bestHeight, -1)
 
     hr.bestHeight = 500
     hr.bestHash = 'ee'.repeat(32)
     hr.headers.set(500, { height: 500, hash: 'ee'.repeat(32), prevHash: 'dd'.repeat(32) })
 
-    assert.equal(server.getStatus().headers.bestHeight, 500)
-    assert.equal(server.getStatus().headers.count, 1)
+    assert.equal((await server.getStatus()).headers.bestHeight, 500)
+    assert.equal((await server.getStatus()).headers.count, 1)
   })
 })

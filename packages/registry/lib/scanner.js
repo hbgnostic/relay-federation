@@ -1,7 +1,8 @@
 import { extractOpReturnData, decodePayload } from './cbor.js'
-import { PROTOCOL_PREFIX, BEACON_ADDRESS } from '@relay-federation/common/protocol'
+import { PROTOCOL_PREFIX, BEACON_ADDRESS, MIN_STAKE_SATS } from '@relay-federation/common/protocol'
 import { fetchAddressHistory, fetchTxHex } from '@relay-federation/common/network'
-import { Transaction } from '@bsv/sdk'
+import { hexToUint8 } from '@relay-federation/common/crypto'
+import { Transaction, P2PKH } from '@bsv/sdk'
 
 /**
  * Scan the blockchain for bridge registry transactions.
@@ -30,10 +31,20 @@ export async function scanRegistry (opts) {
     try {
       const entry = await parseRegistryTx(spvEndpoint, apiKey, item.tx_hash)
       if (entry) {
+        // Validate stake bond for registrations
+        let stakeValid = null
+        if (entry.action === 'register' && entry.stake_txid) {
+          const result = await validateStakeBond(spvEndpoint, apiKey, entry.stake_txid, entry.pubkey)
+          stakeValid = result.valid
+          if (!result.valid) {
+            entry._stakeReason = result.reason
+          }
+        }
         entries.push({
           txid: item.tx_hash,
           height: item.height,
-          entry
+          entry,
+          stakeValid
         })
       }
     } catch (err) {
@@ -85,4 +96,49 @@ async function parseRegistryTx (baseUrl, apiKey, txid) {
   return decodePayload(cborBytes)
 }
 
-export { parseRegistryTx, BEACON_ADDRESS }
+/**
+ * Validate a stake bond for a registration entry.
+ *
+ * Checks that the stake_txid in the registration CBOR:
+ *   1. Points to a real transaction on-chain
+ *   2. Has a P2PKH output with >= MIN_STAKE_SATS to the registrant's pubkey
+ *   3. (Spent/unspent tracking is done by the scanner on rescan)
+ *
+ * @param {string} baseUrl - SPV bridge base URL
+ * @param {string} apiKey - Relay API key
+ * @param {Uint8Array} stakeTxidBytes - 32-byte stake txid from CBOR
+ * @param {Uint8Array} pubkeyBytes - 33-byte compressed pubkey from CBOR
+ * @returns {Promise<{valid: boolean, reason?: string}>}
+ */
+async function validateStakeBond (baseUrl, apiKey, stakeTxidBytes, pubkeyBytes) {
+  try {
+    const stakeTxid = Array.from(stakeTxidBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+
+    // Fetch the stake bond tx
+    const rawHex = await fetchTxHex(baseUrl, apiKey, stakeTxid)
+    const tx = Transaction.fromHex(rawHex)
+
+    // Derive the expected P2PKH locking script from the registrant's pubkey
+    const pubkeyHex = Array.from(pubkeyBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+    // Build expected script by hashing the pubkey the same way P2PKH does
+    const { PublicKey } = await import('@bsv/sdk')
+    const pubkey = PublicKey.fromString(pubkeyHex)
+    const address = pubkey.toAddress()
+    const expectedScript = new P2PKH().lock(address).toHex()
+
+    // Check if any output has >= MIN_STAKE_SATS to the registrant's address
+    const stakeOutput = tx.outputs.find(out =>
+      out.satoshis >= MIN_STAKE_SATS && out.lockingScript.toHex() === expectedScript
+    )
+
+    if (!stakeOutput) {
+      return { valid: false, reason: `no output with >= ${MIN_STAKE_SATS} sats to registrant pubkey` }
+    }
+
+    return { valid: true }
+  } catch (err) {
+    return { valid: false, reason: `stake tx fetch failed: ${err.message}` }
+  }
+}
+
+export { parseRegistryTx, validateStakeBond, BEACON_ADDRESS }

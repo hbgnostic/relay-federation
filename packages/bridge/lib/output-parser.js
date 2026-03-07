@@ -82,6 +82,19 @@ export function pubkeyToHash160 (pubkeyHex) {
 }
 
 /**
+ * Convert a BSV address to its hash160 (pubkey hash).
+ * Uses P2PKH locking script to extract the hash160.
+ *
+ * @param {string} address — BSV address (e.g. '1KhH4V...')
+ * @returns {string} 20-byte hash160 as hex
+ */
+export function addressToHash160 (address) {
+  const script = new P2PKH().lock(address).toHex()
+  // P2PKH script: 76a914{hash160}88ac
+  return script.slice(6, 46)
+}
+
+/**
  * Check if a transaction has any outputs paying to a set of watched hash160s.
  *
  * @param {string} rawHex — raw transaction hex

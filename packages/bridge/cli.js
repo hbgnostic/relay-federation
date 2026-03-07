@@ -6,7 +6,7 @@ import { PeerManager } from './lib/peer-manager.js'
 import { HeaderRelay } from './lib/header-relay.js'
 import { TxRelay } from './lib/tx-relay.js'
 import { StatusServer } from './lib/status-server.js'
-import { fetchUtxos, broadcastTx } from '@relay-federation/common/network'
+// network.js import removed — register/deregister now use local UTXOs + P2P broadcast
 
 const command = process.argv[2]
 
@@ -55,13 +55,15 @@ async function cmdInit () {
   const config = await initConfig(dir)
 
   console.log('Bridge initialized!\n')
-  console.log(`  Config: ${dir}/config.json`)
-  console.log(`  Pubkey: ${config.pubkeyHex}`)
+  console.log(`  Config:  ${dir}/config.json`)
+  console.log(`  Pubkey:  ${config.pubkeyHex}`)
+  console.log(`  Address: ${config.address}`)
   console.log('')
   console.log('Next steps:')
-  console.log('  1. Edit config.json — set your WSS endpoint and API key')
-  console.log('  2. Fund your bridge address with BSV')
-  console.log('  3. Run: relay-bridge register')
+  console.log(`  1. Edit config.json — set your WSS endpoint`)
+  console.log(`  2. Fund your bridge: send BSV to ${config.address}`)
+  console.log('  3. Import the funding tx: relay-bridge fund <rawTxHex>')
+  console.log('  4. Run: relay-bridge register')
 }
 
 async function cmdRegister () {
@@ -74,12 +76,6 @@ async function cmdRegister () {
 
   const config = await loadConfig(dir)
 
-  if (!config.apiKey) {
-    console.log('Error: API key required for registration (broadcasts via SPV bridge).')
-    console.log('Set "apiKey" in config.json.')
-    process.exit(1)
-  }
-
   if (config.endpoint === 'wss://your-bridge.example.com:8333') {
     console.log('Error: Update your endpoint in config.json before registering.')
     process.exit(1)
@@ -90,29 +86,99 @@ async function cmdRegister () {
   console.log(`  Endpoint:     ${config.endpoint}`)
   console.log(`  Mesh:         ${config.meshId}`)
   console.log(`  Capabilities: ${config.capabilities.join(', ')}`)
-  console.log(`  SPV Endpoint: ${config.spvEndpoint}`)
   console.log('')
 
   try {
     const { buildRegistrationTx } = await import('../registry/lib/registration.js')
-    const { PrivateKey } = await import('@bsv/sdk')
-    const address = PrivateKey.fromWif(config.wif).toPublicKey().toAddress()
+    const { PersistentStore } = await import('./lib/persistent-store.js')
+    const { BSVNodeClient } = await import('./lib/bsv-node-client.js')
 
-    // Fetch UTXOs from SPV bridge
-    const utxos = await fetchUtxos(config.spvEndpoint, config.apiKey, address)
+    // Open local LevelDB store for UTXOs
+    const dataDir = config.dataDir || join(dir, 'data')
+    const store = new PersistentStore(dataDir)
+    await store.open()
 
-    if (!utxos.length) {
-      console.log('Error: No UTXOs found. Wallet needs funding for tx fees.')
+    // Get UTXOs from local store (populated by 'relay-bridge fund')
+    const localUtxos = await store.getUnspentUtxos()
+
+    if (!localUtxos.length) {
+      console.log('Error: No UTXOs found. Fund your bridge first: relay-bridge fund <rawTxHex>')
+      await store.close()
       process.exit(1)
     }
 
-    // Use first UTXO txid as placeholder stake (real stake bonds are future)
-    const stakeTxid = new Uint8Array(Buffer.from(utxos[0].tx_hash, 'hex'))
+    // Map local UTXO format to what buildRegistrationTx expects
+    const utxos = []
+    for (const u of localUtxos) {
+      const rawHex = await store.getTx(u.txid)
+      if (!rawHex) {
+        console.log(`Warning: No source tx for UTXO ${u.txid}:${u.vout}, skipping`)
+        continue
+      }
+      utxos.push({ tx_hash: u.txid, tx_pos: u.vout, value: u.satoshis, rawHex })
+    }
 
-    // Build registration tx
+    if (!utxos.length) {
+      console.log('Error: No usable UTXOs (missing source transactions).')
+      await store.close()
+      process.exit(1)
+    }
+
+    // Connect to BSV P2P node for broadcasting
+    console.log('Connecting to BSV network...')
+    const bsvNode = new BSVNodeClient()
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        bsvNode.disconnect()
+        reject(new Error('BSV node connection timeout (15s)'))
+      }, 15000)
+      bsvNode.on('handshake', () => { clearTimeout(timeout); resolve() })
+      bsvNode.on('error', (err) => { clearTimeout(timeout); reject(err) })
+      bsvNode.connect()
+    })
+
+    // Step 1: Build and broadcast stake bond tx
+    const { buildStakeBondTx } = await import('../registry/lib/stake-bond.js')
+    const { MIN_STAKE_SATS } = await import('@relay-federation/common/protocol')
+
+    console.log(`Building stake bond (${MIN_STAKE_SATS} sats)...`)
+    const stakeBond = await buildStakeBondTx({ wif: config.wif, utxos })
+
+    bsvNode.broadcastTx(stakeBond.txHex)
+    console.log(`  Stake bond txid: ${stakeBond.txid}`)
+
+    // Brief wait for stake tx to propagate
+    await new Promise(r => setTimeout(r, 1000))
+
+    // Step 2: Build registration tx using real stake bond txid
+    const stakeTxid = new Uint8Array(Buffer.from(stakeBond.txid, 'hex'))
+
+    // Reload UTXOs — stake bond consumed some, but its change output is spendable
+    // Use the stake bond tx's change output (index 1) as funding for registration
+    const stakeChangeTx = stakeBond.txHex
+    const stakeParsed = (await import('@bsv/sdk')).Transaction.fromHex(stakeChangeTx)
+    const changeOutput = stakeParsed.outputs[1]
+    const regUtxos = []
+    if (changeOutput && changeOutput.satoshis > 0) {
+      regUtxos.push({
+        tx_hash: stakeBond.txid,
+        tx_pos: 1,
+        value: changeOutput.satoshis,
+        rawHex: stakeChangeTx
+      })
+    }
+
+    if (!regUtxos.length) {
+      console.log('Error: Stake bond consumed all funds. No UTXOs left for registration tx.')
+      bsvNode.disconnect()
+      await store.close()
+      process.exit(1)
+    }
+
     const { txHex, txid } = await buildRegistrationTx({
       wif: config.wif,
-      utxos,
+      utxos: regUtxos,
       endpoint: config.endpoint,
       capabilities: config.capabilities,
       versions: ['1.0'],
@@ -121,11 +187,15 @@ async function cmdRegister () {
       meshId: config.meshId
     })
 
-    // Broadcast via SPV bridge
-    await broadcastTx(config.spvEndpoint, config.apiKey, txHex)
-
+    bsvNode.broadcastTx(txHex)
     console.log('Registration broadcast successful!')
-    console.log(`  txid: ${txid}`)
+    console.log(`  Registration txid: ${txid}`)
+
+    // Brief wait for tx to propagate, then disconnect
+    await new Promise(r => setTimeout(r, 1000))
+    bsvNode.disconnect()
+    await store.close()
+
     console.log('')
     console.log('Your bridge will appear in peer lists on next scan cycle.')
   } catch (err) {
@@ -256,11 +326,15 @@ async function cmdStart () {
 
   console.log(`  Security: scoring, validation, health, anchors active`)
 
-  // ── 3. Address watcher — watch our own address ────────────
+  // ── 3. Address watcher — watch our own address + beacon ──
   const { AddressWatcher } = await import('./lib/address-watcher.js')
+  const { addressToHash160 } = await import('./lib/output-parser.js')
+  const { BEACON_ADDRESS } = await import('@relay-federation/common/protocol')
   const watcher = new AddressWatcher(txRelay, store)
   watcher.watchPubkey(config.pubkeyHex, 'self')
-  console.log(`  Watching own address`)
+  const beaconHash160 = addressToHash160(BEACON_ADDRESS)
+  watcher.watchHash160(beaconHash160, 'beacon')
+  console.log(`  Watching own address + beacon (${BEACON_ADDRESS})`)
 
   // ── 4. Gossip manager — P2P peer discovery ────────────────
   const { GossipManager } = await import('./lib/gossip.js')
@@ -278,6 +352,57 @@ async function cmdStart () {
     gossipManager.addSeed(seed)
   }
 
+  // ── 4a. Registry — track registered pubkeys for handshake gating ──
+  const registeredPubkeys = new Set()
+  registeredPubkeys.add(config.pubkeyHex) // always trust self
+  for (const seed of seedPeers) {
+    if (seed.pubkeyHex) registeredPubkeys.add(seed.pubkeyHex)
+  }
+  console.log(`  Registry: ${registeredPubkeys.size} trusted pubkeys (self + seeds)`)
+
+  // ── 4b. Beacon address watcher — detect on-chain registrations ──
+  const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('../registry/lib/cbor.js')
+  const { Transaction: BsvTx } = await import('@bsv/sdk')
+
+  watcher.on('utxo:received', async ({ txid, hash160 }) => {
+    if (hash160 !== beaconHash160) return
+
+    try {
+      const rawHex = await store.getTx(txid)
+      if (!rawHex) return
+
+      const tx = BsvTx.fromHex(rawHex)
+      const opReturnOutput = tx.outputs.find(out =>
+        out.satoshis === 0 && out.lockingScript.toHex().startsWith('006a')
+      )
+      if (!opReturnOutput) return
+
+      const { prefix, cborBytes } = extractOpReturnData(opReturnOutput.lockingScript)
+      if (prefix !== PROTOCOL_PREFIX) return
+
+      const entry = decodePayload(cborBytes)
+
+      if (entry.action === 'register') {
+        const pubHex = Buffer.from(entry.pubkey).toString('hex')
+        if (pubHex === config.pubkeyHex) return // skip self
+
+        registeredPubkeys.add(pubHex)
+        gossipManager.addSeed({
+          pubkeyHex: pubHex,
+          endpoint: entry.endpoint,
+          meshId: entry.mesh_id
+        })
+        console.log(`Beacon: new registration detected — ${pubHex.slice(0, 16)}... @ ${entry.endpoint}`)
+      } else if (entry.action === 'deregister') {
+        const pubHex = Buffer.from(entry.pubkey).toString('hex')
+        registeredPubkeys.delete(pubHex)
+        console.log(`Beacon: deregistration detected — ${pubHex.slice(0, 16)}...`)
+      }
+    } catch {
+      // Skip unparseable beacon txs
+    }
+  })
+
   // ── Outbound handshake helper ──────────────────────────────
   function performOutboundHandshake (conn) {
     const { message: helloMsg, nonce } = handshake.createHello()
@@ -287,7 +412,7 @@ async function cmdStart () {
       if (msg.type === 'challenge_response') {
         conn.removeListener('message', onMessage)
         clearTimeout(timeout)
-        const result = handshake.handleChallengeResponse(msg, nonce)
+        const result = handshake.handleChallengeResponse(msg, nonce, registeredPubkeys)
         if (result.error) {
           console.log(`Handshake failed with ${conn.pubkeyHex.slice(0, 16)}...: ${result.error}`)
           conn.destroy()
@@ -343,7 +468,7 @@ async function cmdStart () {
   }
 
   // ── 5. Start server ───────────────────────────────────────
-  await peerManager.startServer({ port: config.port, host: '0.0.0.0', pubkeyHex: config.pubkeyHex, endpoint: config.endpoint, handshake })
+  await peerManager.startServer({ port: config.port, host: '0.0.0.0', pubkeyHex: config.pubkeyHex, endpoint: config.endpoint, handshake, registeredPubkeys })
   console.log(`Bridge listening on port ${config.port}`)
   console.log(`  Pubkey: ${config.pubkeyHex}`)
   console.log(`  Mesh:   ${config.meshId}`)
@@ -413,17 +538,43 @@ async function cmdStart () {
       gossipManager.start()
       gossipManager.requestPeersFromAll()
       console.log('Gossip started')
+
+      // Periodic peer refresh — re-request peer lists every 10 minutes
+      // Catches registrations missed during downtime or initial gossip
+      const PEER_REFRESH_MS = 10 * 60 * 1000
+      const refreshTimer = setInterval(() => {
+        gossipManager.requestPeersFromAll()
+      }, PEER_REFRESH_MS)
+      if (refreshTimer.unref) refreshTimer.unref()
     }
   })
 
-  // Auto-connect to newly discovered peers
-  gossipManager.on('peer:discovered', ({ pubkeyHex, endpoint }) => {
-    if (!peerManager.peers.has(pubkeyHex) && pubkeyHex !== config.pubkeyHex) {
-      console.log(`Discovered peer via gossip: ${pubkeyHex.slice(0, 16)}... ${endpoint}`)
-      const conn = peerManager.connectToPeer({ pubkeyHex, endpoint })
-      if (conn) {
-        conn.on('open', () => performOutboundHandshake(conn))
-      }
+  // Auto-connect to newly discovered peers (with reachability probe + IP diversity)
+  const { probeEndpoint } = await import('./lib/endpoint-probe.js')
+  const { checkIpDiversity } = await import('./lib/ip-diversity.js')
+
+  gossipManager.on('peer:discovered', async ({ pubkeyHex, endpoint }) => {
+    if (peerManager.peers.has(pubkeyHex) || pubkeyHex === config.pubkeyHex) return
+
+    // IP diversity check — prevent all peers clustering in one datacenter
+    const connectedEndpoints = [...peerManager.peers.values()]
+      .filter(c => c.endpoint).map(c => c.endpoint)
+    const diversity = checkIpDiversity(connectedEndpoints, endpoint)
+    if (!diversity.allowed) {
+      console.log(`IP diversity blocked: ${pubkeyHex.slice(0, 16)}... — ${diversity.reason}`)
+      return
+    }
+
+    const reachable = await probeEndpoint(endpoint)
+    if (!reachable) {
+      console.log(`Probe failed: ${pubkeyHex.slice(0, 16)}... ${endpoint} — skipping`)
+      return
+    }
+
+    console.log(`Discovered peer via gossip: ${pubkeyHex.slice(0, 16)}... ${endpoint}`)
+    const conn = peerManager.connectToPeer({ pubkeyHex, endpoint })
+    if (conn) {
+      conn.on('open', () => performOutboundHandshake(conn))
     }
   })
 
@@ -496,7 +647,9 @@ async function cmdStart () {
     txRelay,
     config,
     scorer,
-    peerHealth
+    peerHealth,
+    bsvNodeClient: bsvNode,
+    store
   })
   await statusServer.start()
   console.log(`  Status: http://127.0.0.1:${statusPort}/status`)
@@ -626,6 +779,22 @@ async function cmdStatus () {
   console.log('  Transactions')
   console.log(`    Mempool: ${status.txs.mempool}`)
   console.log(`    Seen:    ${status.txs.seen}`)
+
+  // BSV Node
+  if (status.bsvNode) {
+    console.log('')
+    console.log('  BSV Node')
+    console.log(`    Status: ${status.bsvNode.connected ? 'Connected' : 'Disconnected'}`)
+    console.log(`    Host:   ${status.bsvNode.host || '-'}`)
+    console.log(`    Height: ${status.bsvNode.height || '-'}`)
+  }
+
+  // Wallet
+  if (status.wallet) {
+    console.log('')
+    console.log('  Wallet')
+    console.log(`    Balance: ${status.wallet.balanceSats !== null ? status.wallet.balanceSats + ' sats' : '-'}`)
+  }
 }
 
 async function cmdFund () {
@@ -693,28 +862,46 @@ async function cmdDeregister () {
 
   const config = await loadConfig(dir)
 
-  if (!config.apiKey) {
-    console.log('Error: API key required for deregistration (broadcasts via SPV bridge).')
-    console.log('Set "apiKey" in config.json.')
-    process.exit(1)
-  }
-
   const reason = process.argv[3] || 'shutdown'
 
   console.log('Deregistration details:\n')
   console.log(`  Pubkey: ${config.pubkeyHex}`)
   console.log(`  Reason: ${reason}`)
-  console.log(`  SPV:    ${config.spvEndpoint}`)
   console.log('')
 
   try {
     const { buildDeregistrationTx } = await import('../registry/lib/registration.js')
+    const { PersistentStore } = await import('./lib/persistent-store.js')
+    const { BSVNodeClient } = await import('./lib/bsv-node-client.js')
 
-    // Fetch UTXOs from SPV bridge
-    const utxos = await fetchUtxos(config.spvEndpoint, config.apiKey, config.pubkeyHex)
+    // Open local LevelDB store for UTXOs
+    const dataDir = config.dataDir || join(dir, 'data')
+    const store = new PersistentStore(dataDir)
+    await store.open()
+
+    // Get UTXOs from local store
+    const localUtxos = await store.getUnspentUtxos()
+
+    if (!localUtxos.length) {
+      console.log('Error: No UTXOs found. Fund your bridge first: relay-bridge fund <rawTxHex>')
+      await store.close()
+      process.exit(1)
+    }
+
+    // Map local UTXO format to what buildDeregistrationTx expects
+    const utxos = []
+    for (const u of localUtxos) {
+      const rawHex = await store.getTx(u.txid)
+      if (!rawHex) {
+        console.log(`Warning: No source tx for UTXO ${u.txid}:${u.vout}, skipping`)
+        continue
+      }
+      utxos.push({ tx_hash: u.txid, tx_pos: u.vout, value: u.satoshis, rawHex })
+    }
 
     if (!utxos.length) {
-      console.log('Error: No UTXOs found. Wallet needs funding for tx fees.')
+      console.log('Error: No usable UTXOs (missing source transactions).')
+      await store.close()
       process.exit(1)
     }
 
@@ -725,11 +912,29 @@ async function cmdDeregister () {
       reason
     })
 
-    // Broadcast via SPV bridge
-    await broadcastTx(config.spvEndpoint, config.apiKey, txHex)
+    // Broadcast via BSV P2P — connect to a node, send tx, disconnect
+    console.log('Connecting to BSV network...')
+    const bsvNode = new BSVNodeClient()
 
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        bsvNode.disconnect()
+        reject(new Error('BSV node connection timeout (15s)'))
+      }, 15000)
+      bsvNode.on('handshake', () => { clearTimeout(timeout); resolve() })
+      bsvNode.on('error', (err) => { clearTimeout(timeout); reject(err) })
+      bsvNode.connect()
+    })
+
+    bsvNode.broadcastTx(txHex)
     console.log('Deregistration broadcast successful!')
     console.log(`  txid: ${txid}`)
+
+    // Brief wait for tx to propagate, then disconnect
+    await new Promise(r => setTimeout(r, 1000))
+    bsvNode.disconnect()
+    await store.close()
+
     console.log('')
     console.log('Your bridge will be removed from peer lists on next scan cycle.')
   } catch (err) {
