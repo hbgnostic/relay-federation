@@ -1,0 +1,497 @@
+# Relay Federation — HTTP API Reference
+
+The bridge status server exposes a REST API on port `9333` (configurable). All responses are JSON unless otherwise noted.
+
+**Base URL:** `http://<bridge-ip>:9333`
+
+**Authentication:** Operator endpoints require the `statusSecret` from your bridge config. Pass it as:
+- Query parameter: `?auth=<secret>`
+- Header: `Authorization: Bearer <secret>`
+
+---
+
+## Public Endpoints
+
+### GET /status
+
+Bridge status summary. Returns operator fields (wallet, address) only when authenticated.
+
+**Response:**
+
+```json
+{
+  "bridge": {
+    "pubkeyHex": "02abc...",
+    "meshId": "70016",
+    "uptimeSeconds": 3600
+  },
+  "peers": {
+    "connected": 1,
+    "max": 8,
+    "list": [
+      {
+        "pubkeyHex": "03def...",
+        "endpoint": "ws://45.63.77.31:8333",
+        "connected": true,
+        "score": 0.92,
+        "scoreBreakdown": {
+          "uptime": 1.0,
+          "responseTime": 1.0,
+          "dataAccuracy": 0.5,
+          "stakeAge": 0.28,
+          "raw": {
+            "pings": 12,
+            "pongs": 12,
+            "latencySamples": 12,
+            "avgLatencyMs": 45,
+            "accuracySamples": 0,
+            "stakeAgeDays": 7
+          }
+        },
+        "health": { "status": "healthy", "lastSeen": 1741700000000 }
+      }
+    ]
+  },
+  "headers": {
+    "bestHeight": 890123,
+    "bestHash": "00000000000000000...",
+    "count": 890123
+  },
+  "txs": {
+    "mempool": 5,
+    "seen": 142
+  },
+  "bsvNode": {
+    "connected": true,
+    "peers": 2,
+    "height": 890123
+  }
+}
+```
+
+**Authenticated response** adds:
+
+```json
+{
+  "operator": true,
+  "bridge": {
+    "endpoint": "ws://144.202.48.217:8333",
+    "domains": ["bridge.bsvbible.club"],
+    "address": "1EEtoaSuniYkoU7q16rohyHcquMNpHBRNC"
+  },
+  "wallet": {
+    "balanceSats": 4850000,
+    "utxoCount": 2
+  }
+}
+```
+
+---
+
+### GET /mempool
+
+All transactions currently in the bridge mempool, parsed with full protocol support.
+
+**Response:**
+
+```json
+{
+  "count": 2,
+  "txs": [
+    {
+      "txid": "abc123...",
+      "size": 226,
+      "inputs": [{ "txid": "prev...", "vout": 0 }],
+      "outputs": [
+        {
+          "vout": 0,
+          "satoshis": 0,
+          "isP2PKH": false,
+          "hash160": null,
+          "type": "op_return",
+          "data": ["696e64656c69626c65", "..."],
+          "protocol": "B",
+          "parsed": {
+            "data": "48656c6c6f",
+            "mediaType": "text/plain",
+            "encoding": "utf-8",
+            "filename": null
+          }
+        },
+        {
+          "vout": 1,
+          "satoshis": 50000,
+          "isP2PKH": true,
+          "hash160": "89abcdef...",
+          "type": "p2pkh",
+          "data": null,
+          "protocol": null,
+          "parsed": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Supported `protocol` values:** `B` (B://), `BCAT` (BCAT://), `MAP`, `metanet`, `ordinal`, `bsv-20`, `null` (plain OP_RETURN or P2PKH)
+
+---
+
+### GET /discover
+
+All bridges known to this node (self + gossip directory).
+
+**Response:**
+
+```json
+{
+  "count": 2,
+  "bridges": [
+    {
+      "pubkeyHex": "02abc...",
+      "endpoint": "ws://144.202.48.217:8333",
+      "meshId": "70016",
+      "statusUrl": "http://144.202.48.217:9333/status"
+    },
+    {
+      "pubkeyHex": "03def...",
+      "endpoint": "ws://45.63.77.31:8333",
+      "meshId": "70016",
+      "statusUrl": "http://45.63.77.31:9333/status"
+    }
+  ]
+}
+```
+
+---
+
+### GET /tx/:txid
+
+Fetch and parse a transaction by txid. Checks mempool first, then BSV P2P, then WhatsOnChain fallback.
+
+**Parameters:**
+- `:txid` — 64-character hex transaction ID
+
+**Response (200):**
+
+```json
+{
+  "txid": "abc123...",
+  "source": "mempool",
+  "size": 226,
+  "inputs": [{ "txid": "prev...", "vout": 0 }],
+  "outputs": [
+    {
+      "vout": 0,
+      "satoshis": 0,
+      "isP2PKH": false,
+      "hash160": null,
+      "type": "op_return",
+      "data": ["696e64656c69626c65"],
+      "protocol": "B",
+      "parsed": { "data": "...", "mediaType": "text/plain", "encoding": "utf-8" }
+    }
+  ]
+}
+```
+
+**`source` values:** `mempool`, `p2p`, `woc`
+
+**Error (404):** `{ "error": "tx not found: ..." }`
+
+---
+
+### POST /broadcast
+
+Relay a raw transaction to all connected mesh peers.
+
+**Request body:**
+
+```json
+{ "rawHex": "0100000001..." }
+```
+
+**Response (200):**
+
+```json
+{ "txid": "abc123...", "peers": 3 }
+```
+
+`peers` is the number of mesh peers the tx was relayed to.
+
+---
+
+### GET /inscriptions
+
+Query indexed on-chain inscriptions (ordinals, B://, BSV-20).
+
+**Query parameters:**
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `mime` | string | — | Filter by content type (e.g. `image/png`) |
+| `address` | string | — | Filter by receiving address |
+| `limit` | number | 50 | Max results (capped at 200) |
+
+**Response:**
+
+```json
+{
+  "total": 142,
+  "count": 50,
+  "inscriptions": [
+    {
+      "txid": "abc123...",
+      "vout": 0,
+      "contentType": "image/png",
+      "contentSize": 4096,
+      "isBsv20": false,
+      "bsv20": null,
+      "timestamp": 1741700000,
+      "address": "1Abc..."
+    }
+  ],
+  "filters": { "mime": null, "address": null }
+}
+```
+
+---
+
+### GET /inscription/:txid/:vout/content
+
+Serve raw inscription content with proper MIME type.
+
+**Response:** Binary content with `Content-Type` set to the inscription's media type. Cached immutably (`Cache-Control: public, max-age=31536000, immutable`).
+
+---
+
+### GET /address/:addr/history
+
+Transaction history for a BSV address. Proxied from WhatsOnChain with 60-second cache.
+
+**Parameters:**
+- `:addr` — Base58 BSV address (starts with `1` or `3`)
+
+**Response:**
+
+```json
+{
+  "address": "1Abc...",
+  "history": [
+    { "tx_hash": "abc123...", "height": 890100 },
+    { "tx_hash": "def456...", "height": 890050 }
+  ],
+  "cached": false
+}
+```
+
+---
+
+### GET /apps
+
+Health, SSL, and usage data for apps configured on this bridge.
+
+**Response:**
+
+```json
+{
+  "apps": [
+    {
+      "name": "BSV Bible",
+      "url": "https://bsvbible.club",
+      "bridgeDomain": "bridge.bsvbible.club",
+      "health": {
+        "status": "online",
+        "statusCode": 200,
+        "responseTimeMs": 120,
+        "lastCheck": "2026-03-11T10:00:00.000Z",
+        "lastError": null,
+        "uptimePercent": 99.5,
+        "checksTotal": 200,
+        "checksUp": 199
+      },
+      "ssl": {
+        "valid": true,
+        "issuer": "Let's Encrypt",
+        "expiresAt": "2026-06-09T00:00:00.000Z",
+        "daysRemaining": 90
+      },
+      "usage": {
+        "totalRequests": 1234,
+        "endpoints": { "/status": 500, "/tx/:txid": 300, "/mempool": 200 },
+        "lastSeen": "2026-03-11T10:00:00.000Z"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### GET /logs
+
+Server-Sent Events (SSE) stream of live bridge logs. Replays the last 500 log entries on connect, then streams new entries in real time.
+
+**Response:** `text/event-stream`
+
+```
+data: {"timestamp":1741700000000,"message":"Peer connected: 03def..."}
+
+data: {"timestamp":1741700001000,"message":"Header relayed: height 890123"}
+```
+
+---
+
+## Operator Endpoints
+
+All operator endpoints require authentication via `statusSecret`.
+
+### POST /register
+
+Start on-chain bridge registration. Builds stake bond + registration tx, broadcasts via BSV P2P. Returns immediately with a job ID for progress tracking.
+
+**Response (202):**
+
+```json
+{ "jobId": "job_1_1741700000000", "stream": "/jobs/job_1_1741700000000" }
+```
+
+Track progress via `GET /jobs/:id` (SSE stream).
+
+---
+
+### POST /deregister
+
+Start on-chain bridge deregistration.
+
+**Request body:**
+
+```json
+{ "reason": "shutdown" }
+```
+
+**Response (202):**
+
+```json
+{ "jobId": "job_2_1741700000000", "stream": "/jobs/job_2_1741700000000" }
+```
+
+---
+
+### POST /fund
+
+Store a funding transaction. Parses the raw tx and stores UTXOs paying to the bridge address. Synchronous.
+
+**Request body:**
+
+```json
+{ "rawHex": "0100000001..." }
+```
+
+**Response (200):**
+
+```json
+{ "stored": 1, "balance": 5000000 }
+```
+
+---
+
+### POST /connect
+
+Connect to a peer endpoint and perform cryptographic handshake.
+
+**Request body:**
+
+```json
+{ "endpoint": "ws://45.63.77.31:8333" }
+```
+
+**Response (200):**
+
+```json
+{ "endpoint": "ws://45.63.77.31:8333", "status": "connecting" }
+```
+
+---
+
+### POST /send
+
+Send BSV from the bridge wallet to a destination address.
+
+**Request body:**
+
+```json
+{ "toAddress": "1Abc...", "amount": 50000 }
+```
+
+`amount` is in satoshis (minimum 546, dust limit).
+
+**Response (202):**
+
+```json
+{ "jobId": "job_3_1741700000000", "stream": "/jobs/job_3_1741700000000" }
+```
+
+---
+
+### GET /jobs/:id
+
+SSE stream for tracking async job progress (register, deregister, send).
+
+**Response:** `text/event-stream`
+
+```
+data: {"type":"step","message":"Building stake bond...","timestamp":1741700000000}
+
+data: {"type":"step","message":"Stake bond txid: abc123...","timestamp":1741700001000}
+
+data: {"type":"done","message":"Registration broadcast successful!","data":{"stakeTxid":"abc...","registrationTxid":"def..."},"timestamp":1741700002000}
+
+data: {"type":"end","status":"completed"}
+```
+
+**Event types:** `step` (progress), `done` (success), `error` (failure), `end` (stream close)
+
+---
+
+### POST /scan-address
+
+Scan a BSV address for inscriptions via WhatsOnChain. Fetches transaction history, parses each tx, and indexes any inscriptions found.
+
+**Request body:**
+
+```json
+{ "address": "1Abc..." }
+```
+
+**Response:** SSE stream with progress updates:
+
+```
+data: {"phase":"fetching","message":"Fetching address history..."}
+
+data: {"phase":"scanning","message":"Scanning tx 1/42...","progress":2}
+
+data: {"phase":"complete","result":{"scanned":42,"found":3,"indexed":3}}
+```
+
+---
+
+### POST /rebuild-inscription-index
+
+Deduplicate and rebuild secondary inscription indexes.
+
+**Response (200):**
+
+```json
+{ "rebuilt": 142 }
+```
+
+---
+
+## Dashboard
+
+### GET /
+
+HTML dashboard with auto-refresh. Tabs: Overview, Mempool, Tx Explorer, Inscriptions, Apps.
+
+Accessible without authentication for read-only view. Operator features (wallet, register, send) require `?auth=<secret>` in the URL.
