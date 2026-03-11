@@ -9,8 +9,36 @@ A federated mesh network for relaying Bitcoin SV transactions and block headers.
 | [`@relay-federation/bridge`](packages/bridge) | [![npm](https://img.shields.io/npm/v/@relay-federation/bridge)](https://www.npmjs.com/package/@relay-federation/bridge) | Bridge server — WebSocket peering, header sync, tx relay, CLI |
 | [`@relay-federation/common`](packages/common) | [![npm](https://img.shields.io/npm/v/@relay-federation/common)](https://www.npmjs.com/package/@relay-federation/common) | Shared modules — crypto, network, protocol constants |
 | [`@relay-federation/registry`](packages/registry) | — | On-chain bridge registry — CBOR encoding, registration/deregistration tx builders |
+| [`@relay-federation/sdk`](packages/sdk) | [![npm](https://img.shields.io/npm/v/@relay-federation/sdk)](https://www.npmjs.com/package/@relay-federation/sdk) | JavaScript client SDK — connect to any bridge from your app |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [API Reference](docs/api.md) | HTTP endpoints — request/response formats for all 18 routes |
+| [Protocol Spec](docs/protocol.md) | On-chain registry, CBOR format, handshake, gossip, peer scoring |
+| [Whitepaper](docs/whitepaper.md) | Architecture and design of the Federated SPV Relay Mesh |
+| [SDK README](packages/sdk/README.md) | Client library quick start and API reference |
 
 ## Quick Start
+
+### For app developers (SDK)
+
+```bash
+npm install @relay-federation/sdk
+```
+
+```javascript
+import { RelayBridge } from '@relay-federation/sdk'
+
+const bridge = new RelayBridge('http://144.202.48.217:9333')
+const tx = await bridge.getTx('abc123...')
+const mesh = await bridge.discover()
+```
+
+See the [SDK README](packages/sdk/README.md) for full API.
+
+### For bridge operators (CLI)
 
 ```bash
 # Install
@@ -57,8 +85,6 @@ relay-bridge start
   "endpoint": "wss://your-bridge.example.com:8333",
   "meshId": "70016",
   "capabilities": ["tx_relay", "header_sync", "broadcast", "address_history"],
-  "spvEndpoint": "https://relay.indelible.one",
-  "apiKey": "",
   "port": 8333,
   "statusPort": 9333,
   "maxPeers": 20
@@ -72,8 +98,6 @@ relay-bridge start
 | `endpoint` | Your public WSS endpoint. Other bridges connect here. |
 | `meshId` | Which mesh to join. Bridges only peer within the same mesh. |
 | `capabilities` | What this bridge supports: `tx_relay`, `header_sync`, `broadcast`, `address_history`. |
-| `spvEndpoint` | Gateway for UTXO lookups and tx broadcast. |
-| `apiKey` | API key for gateway access. Required for registration and chain scanning. |
 | `port` | WebSocket server port. Default `8333`. |
 | `statusPort` | HTTP status server + dashboard port. Default `9333`. |
 | `maxPeers` | Maximum peer connections. Default `20`. |
@@ -162,22 +186,17 @@ The Docker image uses the compiled Linux binary on `debian:bookworm-slim` (~80 M
 
 ## Examples
 
-The `examples/` folder has copy-paste scripts for common operations:
+The `examples/` folder has copy-paste scripts:
 
 ```bash
-# Set your API key
-export RELAY_API_KEY=relay_sk_your_key_here
+# SDK demo — connect to a bridge, explore the mesh
+node examples/sdk-demo.js
+node examples/sdk-demo.js http://your-bridge:9333
 
-# Look up a transaction
+# Raw API examples (no SDK)
 node examples/lookup-tx.js abc123...
-
-# Broadcast a raw transaction
 node examples/broadcast-tx.js 0100000001...
-
-# Check an address balance
 node examples/check-balance.js 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
-
-# Check mesh health
 node examples/mesh-health.js
 ```
 
