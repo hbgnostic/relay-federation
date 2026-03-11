@@ -222,8 +222,8 @@ Kill and start as **separate SSH commands** — `pkill` kills the SSH session to
 # Step 1: Kill
 ssh root@<IP> "pkill -f 'relay-bridge start'"
 
-# Step 2: Remove stale lock and start
-ssh root@<IP> "rm -f /root/.relay-bridge/data/bridge.db/LOCK && setsid relay-bridge start > /var/log/relay-bridge.log 2>&1 &"
+# Step 2: Kill stale port holders, remove lock, and start
+ssh root@<IP> "fuser -k 8333/tcp 2>/dev/null; rm -f /root/.relay-bridge/data/bridge.db/LOCK && setsid relay-bridge start > /var/log/relay-bridge.log 2>&1 &"
 ```
 
 ### Deploy updates
