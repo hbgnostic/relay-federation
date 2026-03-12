@@ -4,11 +4,11 @@ import { extractSubnet, getSubnets, checkIpDiversity } from '../lib/ip-diversity
 
 describe('extractSubnet', () => {
   it('extracts /16 from ws:// IP endpoint', () => {
-    assert.equal(extractSubnet('ws://144.202.48.217:8333'), '144.202')
+    assert.equal(extractSubnet('ws://192.0.2.1:8333'), '192.0')
   })
 
   it('extracts /16 from wss:// IP endpoint', () => {
-    assert.equal(extractSubnet('wss://45.63.77.31:8333'), '45.63')
+    assert.equal(extractSubnet('wss://198.51.100.1:8333'), '198.51')
   })
 
   it('returns null for hostname endpoints', () => {
@@ -31,15 +31,15 @@ describe('extractSubnet', () => {
 describe('getSubnets', () => {
   it('returns unique subnets from endpoint list', () => {
     const endpoints = [
-      'ws://144.202.48.217:8333',
-      'ws://144.202.99.1:8333',
-      'ws://45.63.77.31:8333',
+      'ws://192.0.2.1:8333',
+      'ws://192.0.2.99:8333',
+      'ws://198.51.100.1:8333',
       'ws://10.0.0.1:8333'
     ]
     const subnets = getSubnets(endpoints)
     assert.equal(subnets.size, 3)
-    assert.ok(subnets.has('144.202'))
-    assert.ok(subnets.has('45.63'))
+    assert.ok(subnets.has('192.0'))
+    assert.ok(subnets.has('198.51'))
     assert.ok(subnets.has('10.0'))
   })
 
@@ -52,27 +52,27 @@ describe('getSubnets', () => {
 describe('checkIpDiversity', () => {
   it('allows anything when fewer than minSubnets peers', () => {
     const result = checkIpDiversity(
-      ['ws://144.202.1.1:8333', 'ws://144.202.2.2:8333'],
-      'ws://144.202.3.3:8333'
+      ['ws://192.0.2.1:8333', 'ws://192.0.2.2:8333'],
+      'ws://192.0.2.3:8333'
     )
     assert.equal(result.allowed, true)
   })
 
   it('allows new subnet — always good for diversity', () => {
     const connected = [
-      'ws://144.202.1.1:8333',
-      'ws://45.63.1.1:8333',
+      'ws://192.0.2.1:8333',
+      'ws://198.51.100.1:8333',
       'ws://10.0.1.1:8333'
     ]
-    const result = checkIpDiversity(connected, 'ws://192.168.1.1:8333')
+    const result = checkIpDiversity(connected, 'ws://203.0.113.1:8333')
     assert.equal(result.allowed, true)
   })
 
   it('allows hostname endpoints (cannot determine subnet)', () => {
     const connected = [
-      'ws://144.202.1.1:8333',
-      'ws://144.202.2.2:8333',
-      'ws://144.202.3.3:8333'
+      'ws://192.0.2.1:8333',
+      'ws://192.0.2.2:8333',
+      'ws://192.0.2.3:8333'
     ]
     const result = checkIpDiversity(connected, 'wss://bridge.example.com:8333')
     assert.equal(result.allowed, true)
@@ -80,26 +80,26 @@ describe('checkIpDiversity', () => {
 
   it('blocks when one subnet would have >50% and diversity is low', () => {
     const connected = [
-      'ws://144.202.1.1:8333',
-      'ws://144.202.2.2:8333',
-      'ws://45.63.1.1:8333'
+      'ws://192.0.2.1:8333',
+      'ws://192.0.2.2:8333',
+      'ws://198.51.100.1:8333'
     ]
-    // Adding another 144.202 would make it 3/4 = 75% from same subnet
+    // Adding another 192.0 would make it 3/4 = 75% from same subnet
     // with only 2 subnets total (<=3 minimum)
-    const result = checkIpDiversity(connected, 'ws://144.202.3.3:8333')
+    const result = checkIpDiversity(connected, 'ws://192.0.2.3:8333')
     assert.equal(result.allowed, false)
-    assert.ok(result.reason.includes('144.202'))
+    assert.ok(result.reason.includes('192.0'))
   })
 
   it('allows same subnet when diversity is already good', () => {
     const connected = [
-      'ws://144.202.1.1:8333',
-      'ws://45.63.1.1:8333',
+      'ws://192.0.2.1:8333',
+      'ws://198.51.100.1:8333',
       'ws://10.0.1.1:8333',
-      'ws://192.168.1.1:8333'
+      'ws://203.0.113.1:8333'
     ]
-    // 4 subnets — diversity is good, adding another 144.202 is fine
-    const result = checkIpDiversity(connected, 'ws://144.202.2.2:8333')
+    // 4 subnets — diversity is good, adding another 192.0 is fine
+    const result = checkIpDiversity(connected, 'ws://192.0.2.2:8333')
     assert.equal(result.allowed, true)
   })
 })

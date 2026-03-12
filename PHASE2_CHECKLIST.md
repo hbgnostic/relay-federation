@@ -173,6 +173,6 @@ The bridge currently only decodes P2PKH outputs. To serve developers (like on-ch
 - Chain scanner exists and is tested (`registry/lib/scanner.js`) — stake validation added (2.10)
 - All 268 bridge tests pass (0 failures) — 23 new protocol parser tests added
 - Current deployed version: v0.2.1
-- Live nodes: bridge-alpha (144.202.48.217), bridge-beta (45.63.77.31)
+- Live nodes: bridge-alpha (<bridge-alpha-ip>), bridge-beta (<bridge-beta-ip>)
 - Federation bridges serve bsvbible.club and chainofthought.news via nginx reverse proxies on VPS1
-- SSH key auth configured for VPS1 (144.202.48.217) — no password needed
+- SSH key auth configured for VPS1 (<bridge-alpha-ip>) — no password needed

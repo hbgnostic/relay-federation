@@ -31,7 +31,7 @@ Bridge status summary. Returns operator fields (wallet, address) only when authe
     "list": [
       {
         "pubkeyHex": "03def...",
-        "endpoint": "ws://45.63.77.31:8333",
+        "endpoint": "ws://<bridge-beta-ip>:8333",
         "connected": true,
         "score": 0.92,
         "scoreBreakdown": {
@@ -75,7 +75,7 @@ Bridge status summary. Returns operator fields (wallet, address) only when authe
 {
   "operator": true,
   "bridge": {
-    "endpoint": "ws://144.202.48.217:8333",
+    "endpoint": "ws://<bridge-alpha-ip>:8333",
     "domains": ["bridge.bsvbible.club"],
     "address": "1EEtoaSuniYkoU7q16rohyHcquMNpHBRNC"
   },
@@ -150,15 +150,15 @@ All bridges known to this node (self + gossip directory).
   "bridges": [
     {
       "pubkeyHex": "02abc...",
-      "endpoint": "ws://144.202.48.217:8333",
+      "endpoint": "ws://<bridge-alpha-ip>:8333",
       "meshId": "70016",
-      "statusUrl": "http://144.202.48.217:9333/status"
+      "statusUrl": "http://<bridge-alpha-ip>:9333/status"
     },
     {
       "pubkeyHex": "03def...",
-      "endpoint": "ws://45.63.77.31:8333",
+      "endpoint": "ws://<bridge-beta-ip>:8333",
       "meshId": "70016",
-      "statusUrl": "http://45.63.77.31:9333/status"
+      "statusUrl": "http://<bridge-beta-ip>:9333/status"
     }
   ]
 }
@@ -560,13 +560,13 @@ Connect to a peer endpoint and perform cryptographic handshake.
 **Request body:**
 
 ```json
-{ "endpoint": "ws://45.63.77.31:8333" }
+{ "endpoint": "ws://<bridge-beta-ip>:8333" }
 ```
 
 **Response (200):**
 
 ```json
-{ "endpoint": "ws://45.63.77.31:8333", "status": "connecting" }
+{ "endpoint": "ws://<bridge-beta-ip>:8333", "status": "connecting" }
 ```
 
 ---

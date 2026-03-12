@@ -8,14 +8,14 @@ The relay federation bridge parses BSV transactions beyond simple P2PKH. Every o
 
 ### Lookup a Transaction
 ```bash
-curl http://144.202.48.217:9333/tx/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00
+curl http://<your-bridge-ip>:9333/tx/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00
 ```
 
 Returns fully parsed JSON with `type`, `protocol`, `parsed` for each output.
 
 ### Get Mempool with Protocol Data
 ```bash
-curl http://144.202.48.217:9333/mempool
+curl http://<your-bridge-ip>:9333/mempool
 ```
 
 Each output includes `type`, `protocol`, `parsed` fields alongside `vout`, `satoshis`, `hash160`.
@@ -231,14 +231,14 @@ Every tx the bridge sees is tracked through a lifecycle: `mempool` → `confirme
 
 ### Check tx status
 ```bash
-curl http://144.202.48.217:9333/tx/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00/status
+curl http://<your-bridge-ip>:9333/tx/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00/status
 ```
 
 Returns `{ state, firstSeen, lastSeen, source, blockHash?, height?, block? }`.
 
 ### Get Merkle proof
 ```bash
-curl http://144.202.48.217:9333/proof/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00
+curl http://<your-bridge-ip>:9333/proof/d312e66b15eed296497c3d3855df6e07e0380feca46d3cf68da3ba5d58804f00
 ```
 
 Returns `{ txid, blockHash, height, proof: { nodes[], index } }`. 404 if not confirmed.
@@ -249,7 +249,7 @@ Returns `{ txid, blockHash, height, proof: { nodes[], index } }`. 404 if not con
 
 ### Get BSV/USD price
 ```bash
-curl http://144.202.48.217:9333/price
+curl http://<your-bridge-ip>:9333/price
 ```
 
 Returns `{ usd, currency, source, cached, ttl }`. Cached 60 seconds, sourced from WoC.
@@ -262,17 +262,17 @@ Tokens are indexed from confirmed transactions only (no mempool). Deploy + mint 
 
 ### List all tokens
 ```bash
-curl http://144.202.48.217:9333/tokens
+curl http://<your-bridge-ip>:9333/tokens
 ```
 
 ### Get token deploy info
 ```bash
-curl http://144.202.48.217:9333/token/ordi
+curl http://<your-bridge-ip>:9333/token/ordi
 ```
 
 ### Check token balance by scriptHash
 ```bash
-curl http://144.202.48.217:9333/token/ordi/balance/abc123def456...
+curl http://<your-bridge-ip>:9333/token/ordi/balance/abc123def456...
 ```
 
 **scriptHash** = SHA256 of the locking script hex. Universal — works for P2PKH, P2PK, P2SH, bare scripts.

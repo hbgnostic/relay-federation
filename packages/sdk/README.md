@@ -13,7 +13,7 @@ npm install @relay-federation/sdk
 ```javascript
 import { RelayBridge } from '@relay-federation/sdk'
 
-const bridge = new RelayBridge('http://144.202.48.217:9333')
+const bridge = new RelayBridge('http://your-bridge:9333')
 
 // Get bridge status
 const status = await bridge.getStatus()
@@ -108,7 +108,7 @@ try {
 
 ```javascript
 // Connect to one bridge, discover the rest
-const entry = new RelayBridge('http://144.202.48.217:9333')
+const entry = new RelayBridge('http://your-bridge:9333')
 const mesh = await entry.discover()
 
 // Connect to all bridges

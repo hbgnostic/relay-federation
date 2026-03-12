@@ -6,7 +6,7 @@
  *
  * Usage:
  *   import { RelayBridge } from '@relay-federation/sdk'
- *   const bridge = new RelayBridge('http://144.202.48.217:9333')
+ *   const bridge = new RelayBridge('http://your-bridge:9333')
  *   const tx = await bridge.getTx('abc123...')
  */
 
@@ -14,7 +14,7 @@ export class RelayBridge {
   /**
    * Create a bridge client.
    *
-   * @param {string} baseUrl — Bridge status server URL (e.g. "http://144.202.48.217:9333")
+   * @param {string} baseUrl — Bridge status server URL (e.g. "http://your-bridge:9333")
    * @param {object} [opts]
    * @param {string} [opts.auth] — Operator statusSecret for authenticated endpoints
    * @param {number} [opts.timeout=10000] — Request timeout in ms
@@ -181,7 +181,7 @@ export class RelayBridge {
    * Connect to a peer endpoint and perform cryptographic handshake.
    * Requires authentication.
    *
-   * @param {string} endpoint — WebSocket endpoint (e.g. "ws://45.63.77.31:8333")
+   * @param {string} endpoint — WebSocket endpoint (e.g. "ws://your-other-bridge:8333")
    * @returns {Promise<{ endpoint: string, status: string }>}
    */
   async connect (endpoint) {

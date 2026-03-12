@@ -1,11 +1,11 @@
 // SDK demo — connect to a bridge and explore the mesh
 // Usage: node sdk-demo.js [bridge-url]
 //
-// Default bridge: http://144.202.48.217:9333
+// Default bridge: http://localhost:9333
 
 import { RelayBridge } from '@relay-federation/sdk'
 
-const url = process.argv[2] || 'http://144.202.48.217:9333'
+const url = process.argv[2] || 'http://localhost:9333'
 const bridge = new RelayBridge(url)
 
 // 1. Bridge status
