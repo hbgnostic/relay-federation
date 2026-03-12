@@ -1267,7 +1267,7 @@ function renderMempoolTab() {
       html += '<div class="tx-output">' + protocolBadge(o.type, o.protocol) + ' #' + o.vout + ': ' + fmtSats(o.satoshis) + ' sats';
       if (o.hash160) html += ' <span style="color:var(--text-dim)">' + o.hash160 + '</span>';
       html += '</div>';
-      if (o.parsed) html += renderParsedData(o.type, o.protocol, o.parsed);
+      if (o.parsed) html += renderParsedData(o.type, o.protocol, o.parsed, tx.txid, o.vout);
       else if (o.type === 'op_return' && o.data && o.data.length > 0) html += renderRawOpReturn(o.data);
     }
     html += '</div>';
@@ -1597,7 +1597,7 @@ function renderTxDetail(tx, txStatus, txProof) {
       html += '</div>';
       if (o.hash160) html += '<div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:3px">hash160: ' + o.hash160 + '</div>';
       if (o.parsed) {
-        html += renderParsedData(o.type, o.protocol, o.parsed);
+        html += renderParsedData(o.type, o.protocol, o.parsed, tx.txid, o.vout);
         if (!decodedCallout) { html += '<div style="font-size:13px;color:var(--text-muted);margin-top:6px;font-style:italic">Decoded by your bridge \u2014 block explorers show this as raw hex</div>'; decodedCallout = true; }
       }
       else if (o.type === 'op_return' && o.data && o.data.length > 0) {
@@ -1631,7 +1631,7 @@ function renderRawOpReturn(pushes) {
   return html;
 }
 
-function renderParsedData(type, protocol, parsed) {
+function renderParsedData(type, protocol, parsed, txid, vout) {
   if (!parsed) return '';
   let html = '<div class="tx-parsed-data">';
 
@@ -1667,6 +1667,9 @@ function renderParsedData(type, protocol, parsed) {
   } else if (protocol === 'ordinal') {
     html += 'Type: <span class="val">' + escapeHtml(parsed.contentType || '-') + '</span>';
     if (parsed.content) html += ' &middot; Size: <span class="val">' + (parsed.content.length / 2) + ' bytes</span>';
+    if (txid !== undefined && vout !== undefined && parsed.contentType && parsed.contentType.startsWith('image/')) {
+      html += '</div><div style="margin-top:8px"><img src="/inscription/' + encodeURIComponent(txid) + '/' + vout + '/content" style="max-width:100%;max-height:320px;border-radius:var(--radius-sm);border:1px solid var(--border)" loading="lazy" alt="inscription">';
+    }
   } else if (type === 'p2sh') {
     html += 'Script hash: <span class="val" style="font-family:var(--mono)">' + (parsed.scriptHash || '-') + '</span>';
   } else if (type === 'multisig') {
