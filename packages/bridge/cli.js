@@ -63,18 +63,19 @@ async function cmdInit () {
   const config = await initConfig(dir)
 
   console.log('Bridge initialized!\n')
-  console.log(`  Config:  ${dir}/config.json`)
-  console.log(`  Pubkey:  ${config.pubkeyHex}`)
-  console.log(`  Address: ${config.address}`)
-  console.log(`  Secret:  ${config.statusSecret}`)
+  console.log(`  Name:     ${config.name}`)
+  console.log(`  Config:   ${dir}/config.json`)
+  console.log(`  Endpoint: ${config.endpoint}`)
+  console.log(`  Pubkey:   ${config.pubkeyHex}`)
+  console.log(`  Address:  ${config.address}`)
+  console.log(`  Secret:   ${config.statusSecret}`)
   console.log('')
   console.log('  Save your operator secret! You need it to log into the dashboard.')
   console.log('')
   console.log('Next steps:')
-  console.log(`  1. Edit config.json — set your WSS endpoint`)
-  console.log(`  2. Fund your bridge: send BSV to ${config.address}`)
-  console.log('  3. Import the funding tx: relay-bridge fund <rawTxHex>')
-  console.log('  4. Run: relay-bridge register')
+  console.log(`  1. Fund your bridge: send BSV to ${config.address}`)
+  console.log('  2. Import the funding tx: relay-bridge fund <rawTxHex>')
+  console.log('  3. Run: relay-bridge register')
 }
 
 async function cmdSecret () {

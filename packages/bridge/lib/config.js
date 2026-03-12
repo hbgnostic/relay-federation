@@ -21,16 +21,29 @@ export function defaultConfigDir () {
  * @param {string} [dir] — Config directory (default: ~/.relay-bridge)
  * @returns {Promise<object>} The generated config
  */
-export async function initConfig (dir = DEFAULT_DIR) {
+export async function initConfig (dir = DEFAULT_DIR, opts = {}) {
   const privKey = PrivateKey.fromRandom()
 
   const address = privKey.toPublicKey().toAddress()
 
+  // Auto-detect public IP
+  let publicIp = opts.ip || null
+  if (!publicIp) {
+    try {
+      const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) })
+      if (res.ok) publicIp = (await res.json()).ip
+    } catch {}
+  }
+
+  const name = opts.name || (publicIp ? 'bridge-' + publicIp.split('.').pop() : 'bridge-' + privKey.toPublicKey().toString().slice(0, 8))
+  const endpoint = publicIp ? 'ws://' + publicIp + ':8333' : 'ws://your-bridge-ip:8333'
+
   const config = {
+    name,
     wif: privKey.toWif(),
     pubkeyHex: privKey.toPublicKey().toString(),
     address,
-    endpoint: 'wss://your-bridge.example.com:8333',
+    endpoint,
     meshId: '70016',
     capabilities: ['tx_relay', 'header_sync', 'broadcast', 'address_history'],
     spvEndpoint: 'https://relay.indelible.one',

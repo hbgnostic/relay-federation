@@ -112,6 +112,7 @@ export class StatusServer {
 
     const status = {
       bridge: {
+        name: this._config.name || null,
         pubkeyHex: this._config.pubkeyHex || null,
         meshId: this._config.meshId || null,
         uptimeSeconds: Math.floor((Date.now() - this._startedAt) / 1000)
@@ -425,6 +426,7 @@ export class StatusServer {
       const bridges = []
       // Add self
       bridges.push({
+        name: this._config.name || null,
         pubkeyHex: this._config.pubkeyHex || null,
         endpoint: this._config.endpoint || null,
         meshId: this._config.meshId || null,
