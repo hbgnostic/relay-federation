@@ -374,6 +374,7 @@ export class StatusServer {
         data.total++
         let ep = path
         if (path.startsWith('/tx/')) ep = '/tx/:txid'
+        else if (path.match(/^\/block\/\d+\/txids$/)) ep = '/block/:height/txids'
         else if (path.startsWith('/inscription/')) ep = '/inscription/:content'
         else if (path.startsWith('/jobs/')) ep = '/jobs/:id'
         data.endpoints[ep] = (data.endpoints[ep] || 0) + 1
@@ -535,6 +536,57 @@ export class StatusServer {
       } catch (err) {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ txid, source, size: rawHex.length / 2, error: 'parse failed: ' + err.message }))
+      }
+      return
+    }
+
+    // GET /block/:height/txids — list transaction IDs in a block
+    // Hybrid approach: uses WoC API for txid list, will migrate to P2P MSG_BLOCK later
+    if (req.method === 'GET' && path.match(/^\/block\/\d+\/txids$/)) {
+      const height = parseInt(path.split('/')[2])
+
+      // Validate height
+      if (isNaN(height) || height < 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid block height' }))
+        return
+      }
+
+      // Get block hash from headerRelay if available
+      let blockHash = null
+      if (this._headerRelay) {
+        blockHash = this._headerRelay.getHashAtHeight?.(height)
+      }
+
+      try {
+        // Fetch block info from WoC (includes txids in response)
+        const blockUrl = blockHash
+          ? `https://api.whatsonchain.com/v1/bsv/main/block/hash/${blockHash}`
+          : `https://api.whatsonchain.com/v1/bsv/main/block/height/${height}`
+
+        const resp = await fetch(blockUrl)
+        if (!resp.ok) {
+          res.writeHead(resp.status === 404 ? 404 : 502, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: `Block not found: ${resp.status}` }))
+          return
+        }
+
+        const blockData = await resp.json()
+
+        // WoC returns tx array with txids in the block info response
+        const txids = blockData.tx || []
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          height: blockData.height,
+          hash: blockData.hash,
+          txCount: txids.length,
+          txids,
+          source: 'woc' // Will change to 'p2p' when MSG_BLOCK is implemented
+        }))
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
       }
       return
     }
