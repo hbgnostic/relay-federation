@@ -1,0 +1,12 @@
+.git
+node_modules
+dist
+*.tgz
+*.tar.gz
+.DS_Store
+*.log
+packages/*/test
+packages/*/node_modules
+packages/registry
+packages/sdk
+packages/discovery

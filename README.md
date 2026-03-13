@@ -11,7 +11,7 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 - **Protocol parsing** — P2PKH, OP_RETURN, ordinals, B://, BCAT, MAP, MetaNet, BSV-20
 - **Price feed** — live BSV/USD from CoinGecko
 - **Federation mesh** — bridges discover and verify each other via on-chain stake bonds
-- **Operator dashboard** — glassmorphism UI with Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps tabs
+- **Operator dashboard** — glassmorphism UI with Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps tabs, plus a 3D mesh topology map powered by Three.js
 - **291 tests passing** — MIT license
 
 ## Packages
@@ -190,6 +190,12 @@ relay-bridge.exe start
 ```bash
 docker build -t relay-federation/bridge .
 docker run -v ~/.relay-bridge:/root/.relay-bridge -p 8333:8333 -p 9333:9333 relay-federation/bridge
+```
+
+Or use Docker Compose:
+
+```bash
+docker-compose up -d
 ```
 
 The Docker image uses the compiled Linux binary on `debian:bookworm-slim` (~80 MB).
