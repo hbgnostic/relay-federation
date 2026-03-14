@@ -375,6 +375,7 @@ export class StatusServer {
         let ep = path
         if (path.startsWith('/tx/')) ep = '/tx/:txid'
         else if (path.match(/^\/block\/\d+\/txids$/)) ep = '/block/:height/txids'
+        else if (path.match(/^\/block\/\d+\/transactions$/)) ep = '/block/:height/transactions'
         else if (path.startsWith('/inscription/')) ep = '/inscription/:content'
         else if (path.startsWith('/jobs/')) ep = '/jobs/:id'
         data.endpoints[ep] = (data.endpoints[ep] || 0) + 1
@@ -600,6 +601,81 @@ export class StatusServer {
           totalTxCount,
           txids,
           source: 'woc' // Will change to 'p2p' when MSG_BLOCK is implemented
+        }))
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
+      }
+      return
+    }
+
+    // GET /block/:height/transactions — fetch full block with all parsed transactions via P2P
+    // This is the bulk endpoint for scanners that need all transaction data in one call
+    if (req.method === 'GET' && path.match(/^\/block\/\d+\/transactions$/)) {
+      const height = parseInt(path.split('/')[2])
+
+      // Validate height
+      if (isNaN(height) || height < 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid block height' }))
+        return
+      }
+
+      // Need BSV node client for P2P block fetch
+      if (!this._bsvNodeClient) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'BSV node client not available' }))
+        return
+      }
+
+      try {
+        // Get block hash - try headerRelay first, then WoC
+        let blockHash = null
+        if (this._headerRelay) {
+          blockHash = this._headerRelay.getHashAtHeight?.(height)
+        }
+        if (!blockHash) {
+          // Fall back to WoC for hash lookup
+          const hashResp = await fetch(`https://api.whatsonchain.com/v1/bsv/main/block/height/${height}`)
+          if (!hashResp.ok) {
+            res.writeHead(hashResp.status === 404 ? 404 : 502, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: `Block not found: ${hashResp.status}` }))
+            return
+          }
+          const blockInfo = await hashResp.json()
+          blockHash = blockInfo.hash
+        }
+
+        // Fetch full block via P2P (60 second timeout for large blocks)
+        const block = await this._bsvNodeClient.getBlock(blockHash, 60000)
+
+        // Parse all transactions
+        const transactions = []
+        for (const tx of block.transactions) {
+          try {
+            const parsed = parseTx(tx.rawHex)
+            transactions.push({
+              txid: tx.txid,
+              size: tx.rawHex.length / 2,
+              inputs: parsed.inputs,
+              outputs: parsed.outputs
+            })
+          } catch (err) {
+            transactions.push({
+              txid: tx.txid,
+              size: tx.rawHex.length / 2,
+              error: 'parse failed: ' + err.message
+            })
+          }
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          height,
+          hash: blockHash,
+          txCount: transactions.length,
+          transactions,
+          source: 'p2p'
         }))
       } catch (err) {
         res.writeHead(502, { 'Content-Type': 'application/json' })
