@@ -64,6 +64,17 @@ export class StatusServer {
     this._appBridgeDomains = new Set()
     this._appCheckInterval = null
     this._addressCache = new Map()
+
+    // Rate limiting state
+    this._rateLimits = new Map() // IP -> { requests: [], blocked: boolean }
+    this._rateLimitConfig = {
+      windowMs: 60 * 1000,        // 1 minute window
+      maxRequests: 10,            // 10 requests per minute (just enough to poke around)
+      maxHeavyRequests: 2,        // 2 heavy requests per minute (enough to test, not scrape)
+      blockDurationMs: 15 * 60 * 1000  // 15 minute block for abuse
+    }
+    // Cleanup stale rate limit entries every 5 minutes
+    setInterval(() => this._cleanupRateLimits(), 5 * 60 * 1000)
     if (this._config.apps) {
       for (const app of this._config.apps) {
         this._appChecks.set(app.url, { checks: [], lastError: null })
@@ -179,6 +190,100 @@ export class StatusServer {
     if (authHeader && authHeader.startsWith('Bearer ') && authHeader.slice(7) === secret) return true
 
     return false
+  }
+
+  /**
+   * Get client IP from request (handles proxies).
+   * @param {import('node:http').IncomingMessage} req
+   * @returns {string}
+   */
+  _getClientIP (req) {
+    const forwarded = req.headers['x-forwarded-for']
+    if (forwarded) {
+      return forwarded.split(',')[0].trim()
+    }
+    return req.socket?.remoteAddress || 'unknown'
+  }
+
+  /**
+   * Check if a path is a "heavy" endpoint (expensive to process).
+   * @param {string} path
+   * @returns {boolean}
+   */
+  _isHeavyEndpoint (path) {
+    return path.match(/^\/block\/\d+\/(scan|transactions)$/) !== null
+  }
+
+  /**
+   * Clean up stale rate limit entries.
+   */
+  _cleanupRateLimits () {
+    const now = Date.now()
+    for (const [ip, data] of this._rateLimits) {
+      // Remove entries with no recent requests and not blocked
+      if (!data.blocked && data.requests.length === 0) {
+        this._rateLimits.delete(ip)
+      }
+      // Unblock IPs after block duration
+      if (data.blocked && now - data.blockedAt > this._rateLimitConfig.blockDurationMs) {
+        data.blocked = false
+        data.blockedAt = null
+        data.requests = []
+      }
+    }
+  }
+
+  /**
+   * Check rate limit for a request. Returns true if allowed, false if blocked.
+   * @param {import('node:http').IncomingMessage} req
+   * @param {string} path
+   * @returns {{ allowed: boolean, reason?: string, retryAfter?: number }}
+   */
+  _checkRateLimit (req, path) {
+    const ip = this._getClientIP(req)
+    const now = Date.now()
+    const { windowMs, maxRequests, maxHeavyRequests, blockDurationMs } = this._rateLimitConfig
+
+    // Initialize tracking for this IP
+    if (!this._rateLimits.has(ip)) {
+      this._rateLimits.set(ip, { requests: [], heavyRequests: [], blocked: false, blockedAt: null })
+    }
+
+    const data = this._rateLimits.get(ip)
+
+    // Check if IP is blocked
+    if (data.blocked) {
+      const remaining = Math.ceil((data.blockedAt + blockDurationMs - now) / 1000)
+      return { allowed: false, reason: 'blocked', retryAfter: remaining }
+    }
+
+    // Clean old requests outside window
+    data.requests = data.requests.filter(t => now - t < windowMs)
+    data.heavyRequests = data.heavyRequests.filter(t => now - t < windowMs)
+
+    const isHeavy = this._isHeavyEndpoint(path)
+
+    // Check heavy endpoint limit
+    if (isHeavy && data.heavyRequests.length >= maxHeavyRequests) {
+      // Block the IP for abuse
+      data.blocked = true
+      data.blockedAt = now
+      this.addLog(`🚫 Rate limit: Blocked ${ip} for excessive heavy requests`)
+      return { allowed: false, reason: 'heavy_limit', retryAfter: Math.ceil(blockDurationMs / 1000) }
+    }
+
+    // Check general limit
+    if (data.requests.length >= maxRequests) {
+      return { allowed: false, reason: 'rate_limit', retryAfter: Math.ceil(windowMs / 1000) }
+    }
+
+    // Allow request and track it
+    data.requests.push(now)
+    if (isHeavy) {
+      data.heavyRequests.push(now)
+    }
+
+    return { allowed: true }
   }
 
   /**
@@ -382,6 +487,23 @@ export class StatusServer {
         else if (path.startsWith('/jobs/')) ep = '/jobs/:id'
         data.endpoints[ep] = (data.endpoints[ep] || 0) + 1
         data.lastSeen = new Date().toISOString()
+      }
+    }
+
+    // Rate limiting (skip for authenticated requests)
+    if (!authenticated) {
+      const rateCheck = this._checkRateLimit(req, path)
+      if (!rateCheck.allowed) {
+        res.writeHead(429, {
+          'Content-Type': 'application/json',
+          'Retry-After': String(rateCheck.retryAfter || 60)
+        })
+        res.end(JSON.stringify({
+          error: 'Too Many Requests',
+          reason: rateCheck.reason,
+          retryAfter: rateCheck.retryAfter
+        }))
+        return
       }
     }
 

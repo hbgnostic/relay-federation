@@ -28,24 +28,41 @@ export function scriptToAsm(scriptHex) {
 // ============================================================
 
 function detectScriptType(scriptHex, asm) {
-  if (!scriptHex || !asm) return 'nonstandard';
+  if (!scriptHex) return 'nonstandard';
+
+  // OP_RETURN detection from hex prefix (more reliable than ASM parsing)
+  // 0x6a = OP_RETURN (106), 0x006a = OP_FALSE + OP_RETURN
+  const hexLower = scriptHex.toLowerCase();
+  if (hexLower.startsWith('6a') || hexLower.startsWith('006a')) {
+    return 'nulldata';
+  }
 
   // P2PKH: OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
-  if (asm.startsWith('OP_DUP OP_HASH160') && asm.endsWith('OP_EQUALVERIFY OP_CHECKSIG')) {
+  // Hex: 76a914{20 bytes}88ac
+  if (hexLower.startsWith('76a914') && hexLower.endsWith('88ac') && scriptHex.length === 50) {
+    return 'pubkeyhash';
+  }
+
+  // Also check ASM for P2PKH in case hex check missed it
+  if (asm && asm.startsWith('OP_DUP OP_HASH160') && asm.endsWith('OP_EQUALVERIFY OP_CHECKSIG')) {
     return 'pubkeyhash';
   }
 
   // P2PK: <pubkey> OP_CHECKSIG
-  if (asm.endsWith('OP_CHECKSIG') && !asm.includes('OP_DUP') && !asm.includes('OP_HASH160')) {
-    const parts = asm.split(' ');
-    if (parts.length === 2 && /^[0-9a-fA-F]+$/.test(parts[0])) {
+  // Compressed: 21{33 bytes}ac, Uncompressed: 41{65 bytes}ac
+  if ((hexLower.startsWith('21') || hexLower.startsWith('41')) && hexLower.endsWith('ac')) {
+    const expectedLen = hexLower.startsWith('21') ? 70 : 134;
+    if (scriptHex.length === expectedLen) {
       return 'pubkey';
     }
   }
 
-  // OP_RETURN (nulldata)
-  if (asm.startsWith('OP_RETURN') || asm.startsWith('OP_FALSE OP_RETURN')) {
-    return 'nulldata';
+  // Fallback ASM check for P2PK
+  if (asm && asm.endsWith('OP_CHECKSIG') && !asm.includes('OP_DUP') && !asm.includes('OP_HASH160')) {
+    const parts = asm.split(' ');
+    if (parts.length === 2 && /^[0-9a-fA-F]+$/.test(parts[0])) {
+      return 'pubkey';
+    }
   }
 
   return 'nonstandard';
@@ -276,6 +293,9 @@ export function scanBlock(transactions, blockHeight) {
   const protocolCounts = {};
   const templateCounts = {};
 
+  // Sample scripts for SOTD (first example of each structure type)
+  const sampleScripts = {};
+
   for (const tx of transactions) {
     txCount++;
     const inputs = tx.inputs || [];
@@ -329,6 +349,20 @@ export function scanBlock(transactions, blockHeight) {
       purposeCounts[purpose]++;
       structureCounts[structure]++;
 
+      // Capture sample script for SOTD (first example of each structure type)
+      if (!sampleScripts[structure] && sizeBytes > 0) {
+        const { score, uniqueOps } = scoreScript(asm);
+        sampleScripts[structure] = {
+          txid: tx.txid,
+          blockHeight,
+          outputIndex: outIdx,
+          sizeBytes,
+          uniqueOps,
+          asm: asm.substring(0, 300),
+          skeleton: asm.replace(/[0-9a-fA-F]{10,}/g, '<DATA>').substring(0, 200)
+        };
+      }
+
       // Protocol detection for data publication
       if (purpose === 'DATA_PUBLICATION') {
         const protocols = detectDataProtocols(asm);
@@ -340,6 +374,7 @@ export function scanBlock(transactions, blockHeight) {
       // Track ordinals and simple data pushes
       if (structure === 'ORDINAL_ENVELOPE') {
         inscriptionsSkipped++;
+        // Still capture sample before skipping
         continue;
       }
       if (isSimpleDataPush(asm)) {
@@ -396,7 +431,8 @@ export function scanBlock(transactions, blockHeight) {
     stats: {
       inscriptionsSkipped,
       dataPushesSkipped
-    }
+    },
+    sampleScripts
   };
 }
 
