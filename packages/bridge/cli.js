@@ -428,7 +428,7 @@ async function cmdStart () {
   console.log(`  Registry: ${registeredPubkeys.size} trusted pubkeys (self + seeds)`)
 
   // ── 4b. Beacon address watcher — detect on-chain registrations ──
-  const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('../registry/lib/cbor.js')
+  const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('@relay-federation/registry/lib/cbor.js')
   const { Transaction: BsvTx } = await import('@bsv/sdk')
 
   // Registry bootstrapped via discoverNewPeers() after server start (no WoC dependency)
@@ -723,9 +723,9 @@ async function cmdStart () {
     // Fallback: scan chain for peers (legacy mode)
     console.log('No seed peers configured. Scanning chain for peers...')
     try {
-      const { scanRegistry } = await import('../registry/lib/scanner.js')
-      const { buildPeerList, excludeSelf } = await import('../registry/lib/discovery.js')
-      const { savePeerCache, loadPeerCache } = await import('../registry/lib/peer-cache.js')
+      const { scanRegistry } = await import('@relay-federation/registry/lib/scanner.js')
+      const { buildPeerList, excludeSelf } = await import('@relay-federation/registry/lib/discovery.js')
+      const { savePeerCache, loadPeerCache } = await import('@relay-federation/registry/lib/peer-cache.js')
 
       const cachePath = join(dir, 'cache', 'peers.json')
       let peers = await loadPeerCache(cachePath)
