@@ -623,21 +623,13 @@ The current token indexing supports deploy and mint operations. Transfer trackin
 
 Historical backfill currently relies on WhatsOnChain for block transaction lists. Adding `MSG_BLOCK` support behind a feature flag would enable fully self-sovereign backfill with no third-party dependency, at the cost of increased bandwidth and storage.
 
-### 16.9 Ephemeral Data Envelope Relay
+### 16.9 Ephemeral Data Relay
 
-The relay mesh currently propagates transactions and headers. A natural extension is propagating ephemeral signed data envelopes -- topic-routed, TTL-bounded blobs that are not transactions and have no UTXO representation. Use cases include real-time rate quotes from oracles, attestation signals, availability announcements, and operational notifications between services.
+The mesh currently propagates transactions and block headers. A natural extension is propagating ephemeral signed data -- topic-routed, time-bounded blobs that are not transactions and have no UTXO representation. Rate quotes, attestations, availability signals, and inter-service notifications are examples of data that applications need to distribute in real time without minting on-chain outputs.
 
-This fills a gap in the BSV protocol stack: BRC-22 overlay synchronisation is UTXO-based, BRC-33 PeerServ is point-to-point addressed delivery. Neither covers broadcast ephemeral signals to interested peers via gossip.
+This occupies a gap in the existing BSV protocol stack. BRC-22 overlay synchronisation operates on UTXOs admitted to topic-specific databases. BRC-33 PeerServ provides addressed point-to-point message delivery. Neither mechanism supports broadcasting short-lived signals to all interested peers via gossip.
 
-The proposed extension adds three wire message types to the existing protocol:
-
-1. **Signed data envelope** (`data`) -- ECDSA-signed, topic-namespaced payload with enforced TTL. Propagated via filtered gossip flood to peers that declared matching topic interest.
-2. **Topic interest declaration** (`topics`) -- peers announce topic prefixes they want to receive, enabling selective forwarding without flooding the entire mesh.
-3. **Data request/response** (`data_request`/`data_response`) -- pull-based catch-up for peers that come online after a signal was published. Queries local cache only, does not search the mesh.
-
-Design constraints: envelopes are stored in bounded in-memory ring buffers (not persisted), expire after TTL (max 1 hour), are capped at 4 KB payload, and bridges remain ignorant of payload semantics. Payment for data operations uses BRC-105 on the bridge's HTTP API -- no custom wire-level payment message.
-
-An initial implementation (proposal branch `proposal/ephemeral-data-envelopes`) demonstrates the wire primitives, HTTP endpoints (`POST /data`, `GET /data/:topic`, `GET /data/topics`), topic-filtered gossip propagation, and multi-hop relay across the mesh, with 57 new tests covering unit, HTTP, and WebSocket peering scenarios.
+Three additions to the wire protocol would be sufficient: a signed data envelope carrying an opaque payload with enforced TTL, a topic interest declaration enabling selective forwarding by prefix match, and a request/response pair for pull-based catch-up from local caches. Bridges would remain ignorant of payload semantics. Envelopes would be stored in bounded in-memory ring buffers, never persisted, and forgotten after expiry. Payment for data operations would use BRC-105 on the bridge HTTP API, consistent with the existing monetisation architecture.
 
 ---
 

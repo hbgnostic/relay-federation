@@ -238,6 +238,25 @@ node examples/mesh-health.js
 
 **Dashboard:** Each bridge runs a local HTTP server (default port 9333) with a glassmorphism dashboard — tabs for Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps. The dashboard bootstraps from its own bridge and discovers the full mesh via `/discover` — no hardcoded seeds, no single point of failure. Operator login via `statusSecret`.
 
+## Prerequisites
+
+| Dependency | Minimum Version | Notes |
+|---|---|---|
+| Node.js | 18.0.0 | ESM modules, `node:test` runner, `node:crypto` |
+| npm | 7.0.0 | Workspace support required (Node 18 ships with npm 9+) |
+| Git | 2.0+ | For monorepo clone |
+
+Runtime dependencies (installed automatically by `npm install`):
+
+| Package | Version | Purpose |
+|---|---|---|
+| `@bsv/sdk` | ^1.10.1 | secp256k1 keys, ECDSA signing, transaction building |
+| `level` | ^10.0.0 | LevelDB persistent storage (headers, peers, txs, tokens) |
+| `ws` | ^8.19.0 | WebSocket server and client for mesh peering |
+| `cborg` | ^4.5.8 | CBOR encoding for on-chain registry payloads |
+
+No native compilation or external services required. The bridge runs as a single Node.js process.
+
 ## Development
 
 ```bash
