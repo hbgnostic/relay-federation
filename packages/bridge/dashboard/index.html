@@ -187,7 +187,7 @@
   .tab-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: 14px 20px;
   }
   .tab-content::-webkit-scrollbar { width: 6px; }
   .tab-content::-webkit-scrollbar-track { background: transparent; }
@@ -198,14 +198,14 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
   .stat-card {
-    padding: 18px 20px;
+    padding: 12px 16px;
     text-align: center;
   }
   .stat-card .stat-value {
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
@@ -223,7 +223,7 @@
   /* ── Overview cards grid ─────────────────────────── */
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
     margin-bottom: 20px;
   }
@@ -585,13 +585,15 @@
 
   /* ── Peers ───────────────────────────────────────── */
   .peer-entry {
-    padding: 10px 0;
+    padding: 6px 0;
     border-bottom: 1px solid var(--border);
     font-size: 12px;
   }
   .peer-entry:last-child { border-bottom: none; }
   .peer-entry .peer-name { color: var(--accent-blue); font-family: var(--mono); }
-  .peer-entry .peer-meta { color: var(--text-dim); margin-top: 3px; font-size: 11px; }
+  .peer-entry .peer-meta { color: var(--text-dim); margin-top: 2px; font-size: 11px; }
+  .peer-entry .score-bars { display: none; }
+  .peer-entry.expanded .score-bars { display: block; }
   .peer-dot {
     display: inline-block;
     width: 6px;
@@ -653,11 +655,51 @@
   .mesh3d-container {
     position: relative;
     width: 100%;
-    height: 420px;
+    height: 180px;
     border-radius: var(--radius-sm);
     overflow: hidden;
     background: radial-gradient(ellipse at center, rgba(20,30,50,0.9) 0%, rgba(8,10,14,0.95) 100%);
+    cursor: pointer;
   }
+  .mesh3d-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mesh3d-overlay .mesh3d-expanded {
+    position: relative;
+    width: 90vw;
+    height: 85vh;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, rgba(20,30,50,0.95) 0%, rgba(8,10,14,0.98) 100%);
+    border: 1px solid var(--border-light);
+  }
+  .mesh3d-overlay .mesh3d-expanded canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .mesh3d-overlay .mesh3d-close {
+    position: absolute;
+    top: 12px; right: 16px;
+    z-index: 10;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 18px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mesh3d-overlay .mesh3d-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
   .mesh3d-container canvas {
     display: block;
     width: 100% !important;
@@ -1235,6 +1277,14 @@ function renderOverviewTab() {
 
   if (b._error) html += '<div class="error-banner">' + b._error + '</div>';
 
+  // 3D Mesh Map — compact inline, click to expand
+  const onlineBridgeCount = [...bridgeData.values()].filter(bb => !bb._error).length;
+  if (onlineBridgeCount > 0) {
+    html += '<div class="detail-card glass" style="margin-bottom:12px;padding:10px 14px"><h3 style="margin-bottom:6px">Mesh Topology (' + onlineBridgeCount + ' nodes, ' + bridgeData.size + ' known) <span style="font-size:9px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">— click to expand</span></h3>';
+    html += '<div class="mesh3d-container" id="mesh3dCanvas" onclick="expandMeshMap()"></div>';
+    html += '</div>';
+  }
+
   html += '<div class="cards-grid">';
 
   // Bridge info card
@@ -1282,16 +1332,21 @@ function renderOverviewTab() {
   }
 
   // Peers card
-  html += '<div class="detail-card glass"><h3>Peers (' + b.peers.connected + '/' + b.peers.max + ')</h3>';
+  html += '<div class="detail-card glass"><h3>Peers (' + b.peers.connected + ')</h3>';
   if (b.peers.list.length === 0) {
     html += '<div style="color:var(--text-dim);font-size:12px">No peers connected</div>';
   } else {
-    for (const p of b.peers.list) {
+    const showAll = window._showAllPeers || false;
+    const visiblePeers = showAll ? b.peers.list : b.peers.list.slice(0, 3);
+    for (const p of visiblePeers) {
       const dotC = p.connected ? 'green' : 'red';
-      html += '<div class="peer-entry"><div><span class="peer-dot ' + dotC + '"></span><span class="peer-name">' + truncPubkey(p.pubkeyHex) + '</span> <span style="color:var(--text-dim)">score ' + (p.score !== undefined ? p.score.toFixed(2) : '?') + '</span></div>';
+      html += '<div class="peer-entry" style="cursor:pointer" onclick="this.classList.toggle(\'expanded\')"><div><span class="peer-dot ' + dotC + '"></span><span class="peer-name">' + truncPubkey(p.pubkeyHex) + '</span> <span style="color:var(--text-dim)">score ' + (p.score !== undefined ? p.score.toFixed(2) : '?') + '</span></div>';
       html += '<div class="peer-meta">' + (p.endpoint || '') + (p.health ? ' &middot; ' + p.health : '') + '</div>';
-      if (p.scoreBreakdown) html += renderScoreBars(p.scoreBreakdown);
+      if (p.scoreBreakdown) html += '<div class="score-bars">' + renderScoreBars(p.scoreBreakdown) + '</div>';
       html += '</div>';
+    }
+    if (b.peers.list.length > 3) {
+      html += '<div style="text-align:center;padding:4px 0"><button class="btn ghost" style="font-size:11px;padding:2px 10px" onclick="window._showAllPeers=!window._showAllPeers;renderActiveTab()">' + (showAll ? 'Show less' : 'Show all ' + b.peers.list.length + ' peers') + '</button></div>';
     }
   }
   html += '</div>';
@@ -1308,14 +1363,6 @@ function renderOverviewTab() {
     html += '<button class="btn ghost" onclick="openLogViewer(\'' + b._url + '\')" style="width:100%;margin-top:8px">View Live Logs</button>';
     if (isOperator(b._url)) html += '<button class="btn ghost" onclick="logoutOperator(\'' + b._url + '\')" style="width:100%;margin-top:4px;color:var(--text-dim)">Logout</button>';
     html += '<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.12);border-radius:var(--radius-sm);font-size:11px;color:var(--text-muted)">To backfill historical inscriptions and tokens, run <span style="font-family:var(--mono);color:var(--accent-blue)">relay-bridge backfill</span> from the CLI.</div>';
-    html += '</div>';
-  }
-
-  // 3D Mesh Map card — shows ALL bridges and their connections
-  const onlineBridgeCount = [...bridgeData.values()].filter(bb => !bb._error).length;
-  if (onlineBridgeCount > 0) {
-    html += '<div class="detail-card glass" style="grid-column:1/-1"><h3>Mesh Topology (' + onlineBridgeCount + ' nodes, ' + bridgeData.size + ' known)</h3>';
-    html += '<div class="mesh3d-container" id="mesh3dCanvas"></div>';
     html += '</div>';
   }
 
@@ -2036,9 +2083,10 @@ function initMeshMap3D(containerId) {
   }
   animate();
 
-  // Resize
+  // Resize — reads from mesh3d.container so it works after expand/collapse swap
   const onResize = () => {
-    const nw = container.clientWidth, nh = container.clientHeight;
+    const c = mesh3d ? mesh3d.container : container;
+    const nw = c.clientWidth, nh = c.clientHeight;
     if (nw === 0 || nh === 0) return;
     camera.aspect = nw / nh;
     camera.updateProjectionMatrix();
@@ -2081,6 +2129,9 @@ function updateMeshMap3D() {
 
 function destroyMeshMap3D() {
   if (!mesh3d) return;
+  // Remove overlay if open
+  const overlay = document.getElementById('mesh3dOverlay');
+  if (overlay) overlay.remove();
   cancelAnimationFrame(mesh3d.animId);
   window.removeEventListener('resize', mesh3d.onResize);
   // Dispose geometries and materials
@@ -2101,6 +2152,43 @@ function destroyMeshMap3D() {
     if (lb.el && lb.el.parentNode) lb.el.parentNode.removeChild(lb.el);
   }
   mesh3d = null;
+}
+
+function expandMeshMap() {
+  if (!mesh3d) return;
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'mesh3d-overlay';
+  overlay.id = 'mesh3dOverlay';
+  overlay.innerHTML = '<div class="mesh3d-expanded"><button class="mesh3d-close" onclick="collapseMeshMap()">&times;</button></div>';
+  document.body.appendChild(overlay);
+  // Click backdrop to close
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) collapseMeshMap(); });
+  // Move canvas + labels into expanded container
+  const expanded = overlay.querySelector('.mesh3d-expanded');
+  expanded.appendChild(mesh3d.renderer.domElement);
+  for (const lb of mesh3d.labels) {
+    if (lb.el) expanded.appendChild(lb.el);
+  }
+  mesh3d.container = expanded;
+  // Resize renderer to new container
+  setTimeout(() => { mesh3d.onResize(); }, 50);
+}
+
+function collapseMeshMap() {
+  const overlay = document.getElementById('mesh3dOverlay');
+  if (!overlay) return;
+  // Move canvas + labels back to inline container
+  const inline = document.getElementById('mesh3dCanvas');
+  if (mesh3d && inline) {
+    inline.appendChild(mesh3d.renderer.domElement);
+    for (const lb of mesh3d.labels) {
+      if (lb.el) inline.appendChild(lb.el);
+    }
+    mesh3d.container = inline;
+    setTimeout(() => { mesh3d.onResize(); }, 50);
+  }
+  overlay.remove();
 }
 
 

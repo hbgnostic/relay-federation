@@ -24,7 +24,7 @@ export async function runRegister ({ config, store, log }) {
   log('step', `Mesh:         ${config.meshId}`)
   log('step', `Capabilities: ${config.capabilities.join(', ')}`)
 
-  const { buildRegistrationTx } = await import('../../registry/lib/registration.js')
+  const { buildRegistrationTx } = await import('@relay-federation/registry/lib/registration.js')
   const { BSVNodeClient } = await import('./bsv-node-client.js')
 
   // Get UTXOs from local store
@@ -65,7 +65,7 @@ export async function runRegister ({ config, store, log }) {
 
   try {
     // Step 1: Build and broadcast stake bond tx
-    const { buildStakeBondTx } = await import('../../registry/lib/stake-bond.js')
+    const { buildStakeBondTx } = await import('@relay-federation/registry/lib/stake-bond.js')
     const { MIN_STAKE_SATS } = await import('@relay-federation/common/protocol')
 
     log('step', `Building stake bond (${MIN_STAKE_SATS} sats)...`)
@@ -136,7 +136,7 @@ export async function runDeregister ({ config, store, reason = 'shutdown', log }
   log('step', `Pubkey: ${config.pubkeyHex}`)
   log('step', `Reason: ${reason}`)
 
-  const { buildDeregistrationTx } = await import('../../registry/lib/registration.js')
+  const { buildDeregistrationTx } = await import('@relay-federation/registry/lib/registration.js')
   const { BSVNodeClient } = await import('./bsv-node-client.js')
 
   // Get UTXOs from local store

@@ -293,7 +293,7 @@ async function cmdStart () {
   }
 
   // ── 2. Core components ────────────────────────────────────
-  const peerManager = new PeerManager({ maxPeers: config.maxPeers })
+  const peerManager = new PeerManager()
   const headerRelay = new HeaderRelay(peerManager)
   const txRelay = new TxRelay(peerManager)
 

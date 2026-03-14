@@ -119,7 +119,6 @@ export class StatusServer {
       },
       peers: {
         connected: this._peerManager ? this._peerManager.connectedCount() : 0,
-        max: this._peerManager ? this._peerManager.maxPeers : 0,
         list: peers
       },
       headers: {

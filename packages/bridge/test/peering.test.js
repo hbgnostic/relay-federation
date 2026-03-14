@@ -123,34 +123,6 @@ describe('WebSocket peering', () => {
     assert.equal(sent, 1, 'should only send to c2')
   })
 
-  it('respects maxPeers limit', async () => {
-    const server = new PeerManager({ maxPeers: 1 })
-    const client1 = new PeerManager()
-    const client2 = new PeerManager()
-    managers.push(server, client1, client2)
-
-    await server.startServer({ port: 0, host: '127.0.0.1' })
-    const port = server._server.address().port
-
-    // Connect client1
-    const conn1 = client1.connectToPeer({ pubkeyHex: 'srv', endpoint: `ws://127.0.0.1:${port}` })
-    await waitFor(conn1, 'open')
-    conn1.send({ type: 'hello', pubkey: 'c1', endpoint: 'ws://c1:8333' })
-    await waitFor(server, 'peer:connect')
-
-    assert.equal(server.peers.size, 1)
-
-    // Client2 connects — should be rejected (maxPeers = 1)
-    const conn2 = client2.connectToPeer({ pubkeyHex: 'srv', endpoint: `ws://127.0.0.1:${port}` })
-    await waitFor(conn2, 'open')
-    conn2.send({ type: 'hello', pubkey: 'c2', endpoint: 'ws://c2:8333' })
-
-    // Give time for server to process
-    await new Promise(r => setTimeout(r, 200))
-
-    assert.equal(server.peers.size, 1, 'should still have only 1 peer')
-  })
-
   it('connectedCount tracks active connections', async () => {
     const server = new PeerManager()
     const client = new PeerManager()

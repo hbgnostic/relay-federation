@@ -6,7 +6,6 @@ import { StatusServer } from '../lib/status-server.js'
 function createMockPeerManager () {
   const pm = new EventEmitter()
   pm.peers = new Map()
-  pm.maxPeers = 20
   pm.connectedCount = () => {
     let count = 0
     for (const conn of pm.peers.values()) {
@@ -79,7 +78,6 @@ describe('StatusServer', () => {
     const status = await server.getStatus()
 
     assert.equal(status.peers.connected, 1) // only one with connected=true
-    assert.equal(status.peers.max, 20)
     assert.equal(status.peers.list.length, 2)
     assert.equal(status.peers.list[0].pubkeyHex, 'bb'.repeat(33))
     assert.equal(status.peers.list[0].connected, true)
@@ -123,7 +121,6 @@ describe('StatusServer', () => {
     assert.equal(status.bridge.pubkeyHex, null)
     assert.equal(status.bridge.endpoint, undefined) // endpoint is operator-only
     assert.equal(status.peers.connected, 0)
-    assert.equal(status.peers.max, 0)
     assert.equal(status.peers.list.length, 0)
     assert.equal(status.headers.bestHeight, -1)
     assert.equal(status.headers.bestHash, null)

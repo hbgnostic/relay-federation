@@ -51,7 +51,6 @@ export async function initConfig (dir = DEFAULT_DIR, opts = {}) {
     port: 8333,
     statusPort: 9333,
     statusSecret: randomBytes(32).toString('hex'),
-    maxPeers: 20,
     dataDir: join(dir, 'data'),
     seedPeers: [],
     // apps: [

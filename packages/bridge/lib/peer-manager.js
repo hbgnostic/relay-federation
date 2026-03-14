@@ -20,11 +20,9 @@ import { PeerConnection } from './peer-connection.js'
 export class PeerManager extends EventEmitter {
   /**
    * @param {object} [opts]
-   * @param {number} [opts.maxPeers=20] - Maximum number of peer connections
    */
-  constructor (opts = {}) {
+  constructor () {
     super()
-    this.maxPeers = opts.maxPeers || 20
     /** @type {Map<string, PeerConnection>} pubkeyHex → PeerConnection */
     this.peers = new Map()
     this._server = null
@@ -36,15 +34,11 @@ export class PeerManager extends EventEmitter {
    * @param {object} peer - Peer from buildPeerList()
    * @param {string} peer.pubkeyHex
    * @param {string} peer.endpoint
-   * @returns {PeerConnection|null} The connection, or null if at capacity
+   * @returns {PeerConnection|null} The connection, or null if already connected
    */
   connectToPeer (peer) {
     if (this.peers.has(peer.pubkeyHex)) {
       return this.peers.get(peer.pubkeyHex)
-    }
-
-    if (this.peers.size >= this.maxPeers) {
-      return null
     }
 
     const conn = new PeerConnection({
@@ -70,11 +64,6 @@ export class PeerManager extends EventEmitter {
   acceptPeer (socket, pubkeyHex, endpoint) {
     if (this.peers.has(pubkeyHex)) {
       // Already connected — close the duplicate
-      socket.close()
-      return null
-    }
-
-    if (this.peers.size >= this.maxPeers) {
       socket.close()
       return null
     }
