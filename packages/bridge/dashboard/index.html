@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Federation Mesh Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/three@0.137.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
 <style>
   :root {
     --bg-base: #121518;
@@ -185,7 +187,7 @@
   .tab-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: 14px 20px;
   }
   .tab-content::-webkit-scrollbar { width: 6px; }
   .tab-content::-webkit-scrollbar-track { background: transparent; }
@@ -196,14 +198,14 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
   .stat-card {
-    padding: 18px 20px;
+    padding: 12px 16px;
     text-align: center;
   }
   .stat-card .stat-value {
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
@@ -221,7 +223,7 @@
   /* ── Overview cards grid ─────────────────────────── */
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
     margin-bottom: 20px;
   }
@@ -583,13 +585,15 @@
 
   /* ── Peers ───────────────────────────────────────── */
   .peer-entry {
-    padding: 10px 0;
+    padding: 6px 0;
     border-bottom: 1px solid var(--border);
     font-size: 12px;
   }
   .peer-entry:last-child { border-bottom: none; }
   .peer-entry .peer-name { color: var(--accent-blue); font-family: var(--mono); }
-  .peer-entry .peer-meta { color: var(--text-dim); margin-top: 3px; font-size: 11px; }
+  .peer-entry .peer-meta { color: var(--text-dim); margin-top: 2px; font-size: 11px; }
+  .peer-entry .score-bars { display: none; }
+  .peer-entry.expanded .score-bars { display: block; }
   .peer-dot {
     display: inline-block;
     width: 6px;
@@ -646,6 +650,88 @@
   .mini-map .mm-bg { fill: var(--bg-base); stroke: var(--border-light); stroke-width: 1; }
   .mini-map .mm-label { fill: var(--text-muted); font-size: 9px; font-family: inherit; text-anchor: middle; }
   .mini-map .mm-label.name { fill: var(--accent-blue); font-size: 10px; font-weight: 600; }
+
+  /* ── 3D Mesh Map ──────────────────────────────────── */
+  .mesh3d-container {
+    position: relative;
+    width: 100%;
+    height: 180px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, rgba(20,30,50,0.9) 0%, rgba(8,10,14,0.95) 100%);
+    cursor: pointer;
+  }
+  .mesh3d-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mesh3d-overlay .mesh3d-expanded {
+    position: relative;
+    width: 90vw;
+    height: 85vh;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, rgba(20,30,50,0.95) 0%, rgba(8,10,14,0.98) 100%);
+    border: 1px solid var(--border-light);
+  }
+  .mesh3d-overlay .mesh3d-expanded canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .mesh3d-overlay .mesh3d-close {
+    position: absolute;
+    top: 12px; right: 16px;
+    z-index: 10;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 18px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mesh3d-overlay .mesh3d-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
+  .mesh3d-container canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: var(--radius-sm);
+  }
+  .mesh3d-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 12px;
+    gap: 8px;
+  }
+  .mesh3d-label {
+    position: absolute;
+    font-size: 10px;
+    font-family: var(--mono);
+    pointer-events: none;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.7);
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+    letter-spacing: 0.5px;
+  }
+  .mesh3d-label.center { color: var(--accent-blue); font-weight: 700; font-size: 12px; border-color: rgba(88,166,255,0.3); background: rgba(88,166,255,0.12); text-shadow: 0 0 8px rgba(88,166,255,0.5); }
+  .mesh3d-label.online { color: #7ee8a0; border-color: rgba(63,185,80,0.25); text-shadow: 0 0 6px rgba(63,185,80,0.4); }
+  .mesh3d-label.offline { color: var(--accent-red); opacity: 0.7; border-color: rgba(248,81,73,0.2); }
 
   /* ── Modal ───────────────────────────────────────── */
   .modal-overlay {
@@ -917,11 +1003,12 @@ function generateQR(text) {
 }
 
 // ── Configuration ──────────────────────────────────
-const SEED_BRIDGES = [
-  { name: 'bridge-alpha', url: 'http://144.202.48.217:9333' },
-  { name: 'bridge-beta', url: 'http://45.63.77.31:9333' }
+// Seed URLs only — names come from each bridge's /status response
+const SEED_URLS = [
+  'http://144.202.48.217:9333',
+  'http://45.63.77.31:9333'
 ];
-let BRIDGES = [...SEED_BRIDGES];
+let BRIDGES = SEED_URLS.map(url => ({ name: null, url }));
 const POLL_INTERVAL = 5000;
 let discoveryDone = false;
 
@@ -978,10 +1065,17 @@ async function fetchBridge(bridge) {
     const r = await fetch(bridge.url + '/status' + getAuthParam(bridge.url), { signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    data._name = (data.bridge && data.bridge.name) || bridge.name; data._url = bridge.url; data._error = null; data._lastSeen = Date.now();
+    // Bridge self-reports its name — use that as canonical, fall back to URL-derived name
+    const selfName = (data.bridge && data.bridge.name) ? data.bridge.name : null;
+    const fallbackName = bridge.name || ('bridge-' + new URL(bridge.url).hostname.split('.').pop());
+    data._name = selfName || fallbackName;
+    // Update BRIDGES entry so the name sticks for future polls
+    if (selfName && !bridge.name) bridge.name = selfName;
+    data._url = bridge.url; data._error = null; data._lastSeen = Date.now();
     return data;
   } catch (e) {
-    return { _name: bridge.name, _url: bridge.url, _error: e.message,
+    const fallbackName = bridge.name || ('bridge-' + new URL(bridge.url).hostname.split('.').pop());
+    return { _name: fallbackName, _url: bridge.url, _error: e.message,
       bridge: { pubkeyHex: null, endpoint: null, meshId: null, uptimeSeconds: 0 },
       peers: { connected: 0, max: 0, list: [] },
       headers: { bestHeight: -1, bestHash: null, count: 0 },
@@ -998,10 +1092,11 @@ async function fetchMempool(bridge) {
 }
 async function discoverBridges() {
   const known = new Map();
-  for (const b of SEED_BRIDGES) known.set(b.url, b.name);
-  for (const seed of SEED_BRIDGES) {
+  // Seed URLs start with no name — /status will fill them in
+  for (const url of SEED_URLS) known.set(url, null);
+  for (const url of SEED_URLS) {
     try {
-      const r = await fetch(seed.url + '/discover', { signal: AbortSignal.timeout(5000) });
+      const r = await fetch(url + '/discover', { signal: AbortSignal.timeout(5000) });
       if (!r.ok) continue;
       const data = await r.json();
       if (!data.bridges) continue;
@@ -1009,8 +1104,8 @@ async function discoverBridges() {
         if (!b.statusUrl) continue;
         const base = b.statusUrl.replace(/\/status$/, '');
         if (!known.has(base)) {
-          const name = b.name || 'bridge-' + (b.pubkeyHex ? b.pubkeyHex.slice(0, 8) : known.size);
-          known.set(base, name);
+          // Use name from /discover if available, otherwise placeholder until /status fills it in
+          known.set(base, b.name || null);
         }
       }
     } catch {}
@@ -1088,6 +1183,8 @@ function setTab(tab) {
     if (inp) savedExplorerInput = inp.value;
     if (res) savedExplorerResult = res.innerHTML;
   }
+  // Destroy 3D scene when leaving overview
+  if (activeTab === 'overview' && tab !== 'overview') destroyMeshMap3D();
   activeTab = tab;
   const buttons = document.querySelectorAll('#headerTabs button');
   const tabs = ['overview', 'mempool', 'explorer', 'inscriptions', 'tokens', 'apps'];
@@ -1101,6 +1198,13 @@ function renderActiveTab(fromPoll) {
   const el = document.getElementById('tabContent');
   // Skip apps/explorer re-render during poll (preserves state)
   if (fromPoll && (activeTab === 'apps' || activeTab === 'explorer' || activeTab === 'inscriptions' || activeTab === 'tokens')) return;
+  // On poll, if overview tab has active 3D scene, just update data — don't rebuild DOM
+  if (fromPoll && activeTab === 'overview' && mesh3d) {
+    updateMeshMap3D();
+    return;
+  }
+  // Destroy 3D before rebuilding overview DOM
+  if (activeTab === 'overview') destroyMeshMap3D();
   let html;
   switch (activeTab) {
     case 'overview': html = renderOverviewTab(); break;
@@ -1115,6 +1219,20 @@ function renderActiveTab(fromPoll) {
   if (el.innerHTML !== html) {
     el.innerHTML = html;
     if (activeTab === 'explorer') restoreExplorer();
+    // Init 3D mesh after overview DOM is in place
+    if (activeTab === 'overview') {
+      const onlineBridges = [...bridgeData.values()].filter(b => !b._error);
+      if (onlineBridges.length > 0) {
+        setTimeout(() => {
+          if (!initMeshMap3D('mesh3dCanvas')) {
+            // Fallback to 2D SVG if WebGL unavailable
+            const b = bridgeData.get(selectedBridge);
+            const container = document.getElementById('mesh3dCanvas');
+            if (container && b) container.innerHTML = '<div class="mesh3d-fallback">' + renderMiniMap(b) + '<span>WebGL not available</span></div>';
+          }
+        }, 50);
+      }
+    }
   }
 }
 
@@ -1158,6 +1276,14 @@ function renderOverviewTab() {
   html += '</div>';
 
   if (b._error) html += '<div class="error-banner">' + b._error + '</div>';
+
+  // 3D Mesh Map — compact inline, click to expand
+  const onlineBridgeCount = [...bridgeData.values()].filter(bb => !bb._error).length;
+  if (onlineBridgeCount > 0) {
+    html += '<div class="detail-card glass" style="margin-bottom:12px;padding:10px 14px"><h3 style="margin-bottom:6px">Mesh Topology (' + onlineBridgeCount + ' nodes, ' + bridgeData.size + ' known) <span style="font-size:9px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">— click to expand</span></h3>';
+    html += '<div class="mesh3d-container" id="mesh3dCanvas" onclick="expandMeshMap()"></div>';
+    html += '</div>';
+  }
 
   html += '<div class="cards-grid">';
 
@@ -1206,16 +1332,21 @@ function renderOverviewTab() {
   }
 
   // Peers card
-  html += '<div class="detail-card glass"><h3>Peers (' + b.peers.connected + '/' + b.peers.max + ')</h3>';
+  html += '<div class="detail-card glass"><h3>Peers (' + b.peers.connected + ')</h3>';
   if (b.peers.list.length === 0) {
     html += '<div style="color:var(--text-dim);font-size:12px">No peers connected</div>';
   } else {
-    for (const p of b.peers.list) {
+    const showAll = window._showAllPeers || false;
+    const visiblePeers = showAll ? b.peers.list : b.peers.list.slice(0, 3);
+    for (const p of visiblePeers) {
       const dotC = p.connected ? 'green' : 'red';
-      html += '<div class="peer-entry"><div><span class="peer-dot ' + dotC + '"></span><span class="peer-name">' + truncPubkey(p.pubkeyHex) + '</span> <span style="color:var(--text-dim)">score ' + (p.score !== undefined ? p.score.toFixed(2) : '?') + '</span></div>';
+      html += '<div class="peer-entry" style="cursor:pointer" onclick="this.classList.toggle(\'expanded\')"><div><span class="peer-dot ' + dotC + '"></span><span class="peer-name">' + truncPubkey(p.pubkeyHex) + '</span> <span style="color:var(--text-dim)">score ' + (p.score !== undefined ? p.score.toFixed(2) : '?') + '</span></div>';
       html += '<div class="peer-meta">' + (p.endpoint || '') + (p.health ? ' &middot; ' + p.health : '') + '</div>';
-      if (p.scoreBreakdown) html += renderScoreBars(p.scoreBreakdown);
+      if (p.scoreBreakdown) html += '<div class="score-bars">' + renderScoreBars(p.scoreBreakdown) + '</div>';
       html += '</div>';
+    }
+    if (b.peers.list.length > 3) {
+      html += '<div style="text-align:center;padding:4px 0"><button class="btn ghost" style="font-size:11px;padding:2px 10px" onclick="window._showAllPeers=!window._showAllPeers;renderActiveTab()">' + (showAll ? 'Show less' : 'Show all ' + b.peers.list.length + ' peers') + '</button></div>';
     }
   }
   html += '</div>';
@@ -1233,11 +1364,6 @@ function renderOverviewTab() {
     if (isOperator(b._url)) html += '<button class="btn ghost" onclick="logoutOperator(\'' + b._url + '\')" style="width:100%;margin-top:4px;color:var(--text-dim)">Logout</button>';
     html += '<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.12);border-radius:var(--radius-sm);font-size:11px;color:var(--text-muted)">To backfill historical inscriptions and tokens, run <span style="font-family:var(--mono);color:var(--accent-blue)">relay-bridge backfill</span> from the CLI.</div>';
     html += '</div>';
-  }
-
-  // Mini map card
-  if (b.peers && b.peers.list && b.peers.list.length > 0) {
-    html += '<div class="detail-card glass"><h3>Mesh Map</h3>' + renderMiniMap(b) + '</div>';
   }
 
   html += '</div>'; // cards-grid
@@ -1685,6 +1811,385 @@ function renderParsedData(type, protocol, parsed, txid, vout) {
   return html;
 }
 
+
+// ── 3D Mesh Map ───────────────────────────────────
+let mesh3d = null; // { renderer, scene, camera, controls, animId, nodes, lines, particles, labels, container, lastInteraction }
+
+function hasWebGL() {
+  try { const c = document.createElement('canvas'); return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl'))); } catch { return false; }
+}
+
+function initMeshMap3D(containerId) {
+  if (mesh3d) destroyMeshMap3D();
+  const container = document.getElementById(containerId);
+  if (!container || !hasWebGL() || typeof THREE === 'undefined') return false;
+
+  const w = container.clientWidth, h = container.clientHeight;
+
+  // ── Build topology from ALL bridges ──────────────
+  const allBridges = [...bridgeData.values()].filter(b => !b._error);
+  const n = allBridges.length;
+  if (n === 0) return false;
+
+  // Map pubkey → bridge name for cross-referencing
+  const pubkeyToName = new Map();
+  for (const b of allBridges) {
+    if (b.bridge && b.bridge.pubkeyHex) pubkeyToName.set(b.bridge.pubkeyHex, b._name);
+  }
+
+  // Build edge list: pairs of bridge indices that are connected
+  const edges = [];
+  const edgeSet = new Set();
+  for (let i = 0; i < n; i++) {
+    const b = allBridges[i];
+    if (!b.peers || !b.peers.list) continue;
+    for (const p of b.peers.list) {
+      if (!p.connected) continue;
+      const peerName = pubkeyToName.get(p.pubkeyHex);
+      if (!peerName) continue;
+      const j = allBridges.findIndex(bb => bb._name === peerName);
+      if (j < 0 || j === i) continue;
+      const key = Math.min(i, j) + ':' + Math.max(i, j);
+      if (edgeSet.has(key)) continue;
+      edgeSet.add(key);
+      // Get score data from the peer entry
+      const score = p.score !== undefined ? p.score : 0.5;
+      const breakdown = p.scoreBreakdown || null;
+      edges.push({ a: i, b: j, score, breakdown });
+    }
+  }
+
+  // ── Scene setup ──────────────────────────────────
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 200);
+  // Scale camera distance based on node count
+  const camDist = Math.max(14, n * 2.5);
+  camera.position.set(0, camDist * 0.4, camDist);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  container.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  controls.minDistance = 5;
+  controls.maxDistance = camDist * 2;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.5;
+
+  // ── Lights ───────────────────────────────────────
+  scene.add(new THREE.AmbientLight(0x334466, 0.8));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(5, 10, 7);
+  scene.add(dirLight);
+  const rimLight = new THREE.DirectionalLight(0x58a6ff, 0.3);
+  rimLight.position.set(-3, -5, -3);
+  scene.add(rimLight);
+
+  // ── Starfield ────────────────────────────────────
+  const starGeo = new THREE.BufferGeometry();
+  const starPositions = new Float32Array(400 * 3);
+  for (let i = 0; i < 400; i++) {
+    starPositions[i * 3] = (Math.random() - 0.5) * 120;
+    starPositions[i * 3 + 1] = (Math.random() - 0.5) * 120;
+    starPositions[i * 3 + 2] = (Math.random() - 0.5) * 120;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.15, transparent: true, opacity: 0.35 })));
+
+  // ── Node positions — even distribution in 3D ─────
+  const orbitRadius = Math.max(5, n * 1.2);
+  const nodePositions = [];
+  for (let i = 0; i < n; i++) {
+    if (n === 1) {
+      nodePositions.push(new THREE.Vector3(0, 0, 0));
+    } else if (n === 2) {
+      nodePositions.push(new THREE.Vector3(i === 0 ? -3 : 3, 0, 0));
+    } else {
+      // Distribute on a circle (flatten Y) for small counts, Fibonacci sphere for large
+      const phi = Math.acos(1 - 2 * (i + 0.5) / n);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+      const x = orbitRadius * Math.sin(phi) * Math.cos(theta);
+      const y = orbitRadius * Math.cos(phi) * 0.35;
+      const z = orbitRadius * Math.sin(phi) * Math.sin(theta);
+      nodePositions.push(new THREE.Vector3(x, y, z));
+    }
+  }
+
+  // ── Create bridge nodes ──────────────────────────
+  const nodes = [];
+  const labelEls = [];
+  const glowRings = [];
+
+  for (let i = 0; i < n; i++) {
+    const b = allBridges[i];
+    const isSelected = b._name === selectedBridge;
+    const isOnline = !b._error;
+    const peerCount = b.peers ? b.peers.connected : 0;
+
+    // All bridges same size — color based on health only
+    const radius = 0.65;
+    const nodeGeo = new THREE.SphereGeometry(radius, 32, 32);
+
+    let color, emissive, emissiveIntensity;
+    if (isOnline && peerCount > 0) {
+      color = 0x3fb950; emissive = 0x2a5a2a; emissiveIntensity = 0.7;
+    } else if (isOnline) {
+      color = 0xd29922; emissive = 0x4a3a10; emissiveIntensity = 0.5;
+    } else {
+      color = 0xf85149; emissive = 0x5a2020; emissiveIntensity = 0.5;
+    }
+
+    const nodeMat = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity, roughness: 0.2, metalness: 0.6 });
+    const nodeMesh = new THREE.Mesh(nodeGeo, nodeMat);
+    nodeMesh.position.copy(nodePositions[i]);
+    scene.add(nodeMesh);
+
+    // Point light per node — same for all
+    const lightColor = isOnline ? 0x3fb950 : 0xf85149;
+    const pointLight = new THREE.PointLight(lightColor, 0.8, 6);
+    nodeMesh.add(pointLight);
+
+    // Subtle selection ring — thin white ring if this is the sidebar-selected bridge
+    if (isSelected) {
+      const selRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.85, 0.95, 48),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      );
+      selRing.rotation.x = -Math.PI / 2;
+      selRing.position.copy(nodePositions[i]);
+      scene.add(selRing);
+      glowRings.push(selRing);
+    }
+
+    nodes.push({ mesh: nodeMesh, bridge: b, isSelected });
+
+    // HTML label — bridge name, all same style (online/offline only)
+    const label = document.createElement('div');
+    label.className = 'mesh3d-label ' + (isOnline ? 'online' : 'offline');
+    label.textContent = b._name;
+    container.appendChild(label);
+    labelEls.push({ el: label, nodeMesh });
+  }
+
+  // ── Create edges between connected bridges ───────
+  const edgeObjs = [];
+  const particles = [];
+
+  for (const edge of edges) {
+    const posA = nodePositions[edge.a];
+    const posB = nodePositions[edge.b];
+
+    // Bezier midpoint — arc upward for visual clarity
+    const mid = new THREE.Vector3(
+      (posA.x + posB.x) * 0.5,
+      (posA.y + posB.y) * 0.5 + orbitRadius * 0.2,
+      (posA.z + posB.z) * 0.5
+    );
+    const curve = new THREE.QuadraticBezierCurve3(posA.clone(), mid, posB.clone());
+    const tubeGeo = new THREE.TubeGeometry(curve, 48, 0.03, 8, false);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.45 });
+    const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+    scene.add(tubeMesh);
+    edgeObjs.push({ mesh: tubeMesh, curve, edge });
+
+    // Traffic particles — count driven by mempool activity, speed by latency
+    // Get mempool sizes for the two bridges on this edge
+    const bridgeA = allBridges[edge.a];
+    const bridgeB = allBridges[edge.b];
+    const mempoolA = bridgeA.txs ? bridgeA.txs.mempool : 0;
+    const mempoolB = bridgeB.txs ? bridgeB.txs.mempool : 0;
+    const traffic = Math.max(mempoolA, mempoolB);
+    // 1 idle particle (keepalive pulse) + 1 per 5 mempool txs, max 8
+    const pCount = Math.min(8, 1 + Math.floor(traffic / 5));
+    // Speed: slow idle crawl when quiet, faster with more RTT score (inverted — high score = low latency = faster)
+    const rtt = (edge.breakdown && edge.breakdown.responseTime) ? edge.breakdown.responseTime : 0.5;
+    const baseSpeed = traffic > 0 ? 0.0015 : 0.0006; // idle crawl vs active
+    const speed = baseSpeed + rtt * 0.002;
+    for (let j = 0; j < pCount; j++) {
+      const pGeo = new THREE.SphereGeometry(0.07, 8, 8);
+      // Idle particles are dimmer, active ones brighter
+      const brightness = traffic > 0 ? 0x7ec8ff : 0x4a7a9a;
+      const pMat = new THREE.MeshBasicMaterial({ color: brightness, transparent: true, opacity: traffic > 0 ? 0.9 : 0.4 });
+      const pMesh = new THREE.Mesh(pGeo, pMat);
+      scene.add(pMesh);
+      particles.push({ mesh: pMesh, curve, t: j / pCount, speed, direction: j % 2 === 0 ? 1 : -1, isIdle: traffic === 0 });
+    }
+  }
+
+  // ── Auto-rotate pause ────────────────────────────
+  let lastInteraction = 0;
+  const onInteract = () => { lastInteraction = Date.now(); controls.autoRotate = false; };
+  renderer.domElement.addEventListener('pointerdown', onInteract);
+  renderer.domElement.addEventListener('wheel', onInteract);
+
+  // ── Animation loop ───────────────────────────────
+  const clock = new THREE.Clock();
+  let animId;
+
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    clock.getDelta();
+    const t = clock.getElapsedTime();
+
+    if (!controls.autoRotate && Date.now() - lastInteraction > 10000) controls.autoRotate = true;
+    controls.update();
+
+    // Edge pulsing
+    for (let i = 0; i < edgeObjs.length; i++) {
+      edgeObjs[i].mesh.material.opacity = 0.3 + 0.2 * Math.sin(t * 2 + i * 1.3);
+    }
+
+    // Glow ring animation on selected bridge
+    for (let i = 0; i < glowRings.length; i++) {
+      const gr = glowRings[i];
+      gr.material.opacity = (i % 2 === 0 ? 0.15 : 0.05) + (i % 2 === 0 ? 0.12 : 0.05) * Math.sin(t * 1.5 + i);
+      gr.rotation.z = t * (i % 2 === 0 ? 0.1 : -0.08);
+    }
+
+    // Particles along edges — idle ones crawl & fade, active ones zip
+    for (const p of particles) {
+      p.t += p.speed * p.direction;
+      if (p.t > 1) p.t -= 1;
+      if (p.t < 0) p.t += 1;
+      const pos = p.curve.getPointAt(Math.max(0, Math.min(1, p.t)));
+      p.mesh.position.copy(pos);
+      if (p.isIdle) {
+        // Slow breathing pulse — barely visible keepalive
+        p.mesh.material.opacity = 0.15 + 0.2 * Math.sin(p.t * Math.PI);
+      } else {
+        p.mesh.material.opacity = 0.4 + 0.5 * Math.sin(p.t * Math.PI);
+      }
+    }
+
+    // Project labels 3D → 2D
+    const rect = renderer.domElement.getBoundingClientRect();
+    for (const lb of labelEls) {
+      const pos = lb.nodeMesh.position.clone();
+      pos.y += (lb.el.classList.contains('center') ? 1.6 : 1.2);
+      pos.project(camera);
+      const sx = (pos.x * 0.5 + 0.5) * rect.width;
+      const sy = (-pos.y * 0.5 + 0.5) * rect.height;
+      lb.el.style.left = sx + 'px';
+      lb.el.style.top = sy + 'px';
+      lb.el.style.display = pos.z > 1 ? 'none' : '';
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Resize — reads from mesh3d.container so it works after expand/collapse swap
+  const onResize = () => {
+    const c = mesh3d ? mesh3d.container : container;
+    const nw = c.clientWidth, nh = c.clientHeight;
+    if (nw === 0 || nh === 0) return;
+    camera.aspect = nw / nh;
+    camera.updateProjectionMatrix();
+    renderer.setSize(nw, nh);
+  };
+  window.addEventListener('resize', onResize);
+
+  mesh3d = { renderer, scene, camera, controls, animId, nodes, edges: edgeObjs, particles, labels: labelEls, container, onResize, glowRings };
+  return true;
+}
+
+function updateMeshMap3D() {
+  if (!mesh3d) return;
+  const allBridges = [...bridgeData.values()].filter(b => !b._error);
+  // If bridge count changed, full rebuild needed
+  if (allBridges.length !== mesh3d.nodes.length) return;
+  // Update node visuals
+  for (let i = 0; i < mesh3d.nodes.length && i < allBridges.length; i++) {
+    const node = mesh3d.nodes[i];
+    const b = allBridges[i];
+    const isOnline = !b._error;
+    const peerCount = b.peers ? b.peers.connected : 0;
+    if (isOnline && peerCount > 0) {
+      node.mesh.material.color.setHex(0x3fb950);
+      node.mesh.material.emissive.setHex(0x2a5a2a);
+    } else if (isOnline) {
+      node.mesh.material.color.setHex(0xd29922);
+      node.mesh.material.emissive.setHex(0x4a3a10);
+    } else {
+      node.mesh.material.color.setHex(0xf85149);
+      node.mesh.material.emissive.setHex(0x5a2020);
+    }
+    node.bridge = b;
+    // Update label
+    if (mesh3d.labels[i]) {
+      mesh3d.labels[i].el.className = 'mesh3d-label ' + (isOnline ? 'online' : 'offline');
+    }
+  }
+}
+
+function destroyMeshMap3D() {
+  if (!mesh3d) return;
+  // Remove overlay if open
+  const overlay = document.getElementById('mesh3dOverlay');
+  if (overlay) overlay.remove();
+  cancelAnimationFrame(mesh3d.animId);
+  window.removeEventListener('resize', mesh3d.onResize);
+  // Dispose geometries and materials
+  mesh3d.scene.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+      else obj.material.dispose();
+    }
+  });
+  mesh3d.renderer.dispose();
+  // Remove canvas
+  if (mesh3d.renderer.domElement && mesh3d.renderer.domElement.parentNode) {
+    mesh3d.renderer.domElement.parentNode.removeChild(mesh3d.renderer.domElement);
+  }
+  // Remove labels
+  for (const lb of mesh3d.labels) {
+    if (lb.el && lb.el.parentNode) lb.el.parentNode.removeChild(lb.el);
+  }
+  mesh3d = null;
+}
+
+function expandMeshMap() {
+  if (!mesh3d) return;
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'mesh3d-overlay';
+  overlay.id = 'mesh3dOverlay';
+  overlay.innerHTML = '<div class="mesh3d-expanded"><button class="mesh3d-close" onclick="collapseMeshMap()">&times;</button></div>';
+  document.body.appendChild(overlay);
+  // Click backdrop to close
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) collapseMeshMap(); });
+  // Move canvas + labels into expanded container
+  const expanded = overlay.querySelector('.mesh3d-expanded');
+  expanded.appendChild(mesh3d.renderer.domElement);
+  for (const lb of mesh3d.labels) {
+    if (lb.el) expanded.appendChild(lb.el);
+  }
+  mesh3d.container = expanded;
+  // Resize renderer to new container
+  setTimeout(() => { mesh3d.onResize(); }, 50);
+}
+
+function collapseMeshMap() {
+  const overlay = document.getElementById('mesh3dOverlay');
+  if (!overlay) return;
+  // Move canvas + labels back to inline container
+  const inline = document.getElementById('mesh3dCanvas');
+  if (mesh3d && inline) {
+    inline.appendChild(mesh3d.renderer.domElement);
+    for (const lb of mesh3d.labels) {
+      if (lb.el) inline.appendChild(lb.el);
+    }
+    mesh3d.container = inline;
+    setTimeout(() => { mesh3d.onResize(); }, 50);
+  }
+  overlay.remove();
+}
 
 
 // ── Mini peer map ──────────────────────────────────

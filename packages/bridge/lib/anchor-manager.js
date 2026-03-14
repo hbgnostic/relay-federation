@@ -83,7 +83,6 @@ export class AnchorManager extends EventEmitter {
 
   /**
    * Connect to all configured anchors that we're not already connected to.
-   * Respects maxPeers — if at capacity, still tries anchors (they're priority).
    *
    * @returns {number} Number of new connections initiated
    */

@@ -12,11 +12,9 @@ const REGULAR_PEER = { pubkeyHex: 'dd'.repeat(33), endpoint: 'wss://some-bridge.
 function createMockPeerManager () {
   const pm = new EventEmitter()
   pm.peers = new Map()
-  pm.maxPeers = 20
 
   pm.connectToPeer = (peer) => {
     if (pm.peers.has(peer.pubkeyHex)) return pm.peers.get(peer.pubkeyHex)
-    if (pm.peers.size >= pm.maxPeers) return null
 
     const conn = { connected: true, pubkeyHex: peer.pubkeyHex, endpoint: peer.endpoint }
     pm.peers.set(peer.pubkeyHex, conn)
