@@ -195,11 +195,13 @@ export class BSVPeer extends EventEmitter {
 
       const onHandshake = (info) => {
         clearTimeout(timer)
-        this._socket.removeListener('error', onError)
+        if (this._socket) this._socket.removeListener('error', onError)
         // Replace with soft error handler post-handshake
-        this._socket.on('error', (err) => {
-          this.emit('error', err)
-        })
+        if (this._socket) {
+          this._socket.on('error', (err) => {
+            this.emit('error', err)
+          })
+        }
         resolve(info)
       }
 
