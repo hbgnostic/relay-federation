@@ -9,10 +9,11 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 - **Inscription indexing** — ordinal inscriptions with content-addressed storage and content serving
 - **BSV-20 tokens** — deploy/mint/transfer tracking, balance queries by address
 - **Protocol parsing** — P2PKH, OP_RETURN, ordinals, B://, BCAT, MAP, MetaNet, BSV-20
+- **Data envelope relay** — broadcast signed, TTL-bounded, topic-routed ephemeral data (rates, attestations, notifications) across the mesh without on-chain transactions
 - **Price feed** — live BSV/USD from WhatsOnChain
 - **Federation mesh** — bridges discover and verify each other via on-chain stake bonds
 - **Operator dashboard** — glassmorphism UI with Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps tabs, plus a 3D mesh topology map powered by Three.js
-- **382 tests passing** — MIT license
+- **422 tests passing** (330 bridge + 92 common/registry/sdk) — MIT license
 
 ## Packages
 
@@ -221,6 +222,7 @@ node examples/mesh-health.js
     │                │                │
     ├─ header sync   ├─ header sync   ├─ header sync
     ├─ tx relay      ├─ tx relay      ├─ tx relay
+    ├─ data relay    ├─ data relay    ├─ data relay
     └─ status :9333  └─ status :9333  └─ status :9333
 ```
 
@@ -230,9 +232,30 @@ node examples/mesh-health.js
 
 **Transaction Relay:** Transactions broadcast to any bridge propagate to all connected peers. Each bridge maintains a mempool and deduplicates by txid.
 
+**Data Relay:** Signed ephemeral data envelopes (rates, attestations, notifications) propagate to peers that declared matching topic interests. Envelopes are TTL-bounded, stored in per-topic ring buffers, and pruned on expiry. Pull-based catch-up lets bridges that come online late request missed data from peers.
+
 **Registry:** Bridges register on-chain using a CBOR-encoded OP_RETURN protocol. Other bridges scan the chain to discover peers, filtering by mesh ID and capabilities.
 
 **Dashboard:** Each bridge runs a local HTTP server (default port 9333) with a glassmorphism dashboard — tabs for Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps. The dashboard bootstraps from its own bridge and discovers the full mesh via `/discover` — no hardcoded seeds, no single point of failure. Operator login via `statusSecret`.
+
+## Prerequisites
+
+| Dependency | Minimum Version | Notes |
+|---|---|---|
+| Node.js | 18.0.0 | ESM modules, `node:test` runner, `node:crypto` |
+| npm | 7.0.0 | Workspace support required (Node 18 ships with npm 9+) |
+| Git | 2.0+ | For monorepo clone |
+
+Runtime dependencies (installed automatically by `npm install`):
+
+| Package | Version | Purpose |
+|---|---|---|
+| `@bsv/sdk` | ^1.10.1 | secp256k1 keys, ECDSA signing, transaction building |
+| `level` | ^10.0.0 | LevelDB persistent storage (headers, peers, txs, tokens) |
+| `ws` | ^8.19.0 | WebSocket server and client for mesh peering |
+| `cborg` | ^4.5.8 | CBOR encoding for on-chain registry payloads |
+
+No native compilation or external services required. The bridge runs as a single Node.js process.
 
 ## Development
 
@@ -241,7 +264,7 @@ git clone https://github.com/zcoolz/relay-federation.git
 cd relay-federation
 npm install
 
-# Run bridge tests (382 tests)
+# Run bridge tests (330 tests)
 npm test --workspace=packages/bridge
 ```
 
