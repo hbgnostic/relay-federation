@@ -501,17 +501,23 @@ async function cmdStart () {
         // Tie-break duplicate connections (inbound may have been accepted during handshake)
         const existing = peerManager.peers.get(result.peerPubkey)
         if (existing && existing !== conn) {
-          if (config.pubkeyHex > result.peerPubkey) {
+          // If existing connection is dead, prefer new working connection
+          if (!existing.connected) {
+            console.log(`  Replacing dead connection to ${result.peerPubkey.slice(0, 16)}...`)
+            existing._shouldReconnect = false
+            existing.destroy()
+          } else if (config.pubkeyHex > result.peerPubkey) {
             // Higher pubkey drops outbound — keep existing inbound
             console.log(`  Duplicate: keeping inbound from ${result.peerPubkey.slice(0, 16)}...`)
             conn._shouldReconnect = false
             conn.destroy()
             return
+          } else {
+            // Lower pubkey keeps outbound — drop existing inbound
+            console.log(`  Duplicate: keeping outbound to ${result.peerPubkey.slice(0, 16)}...`)
+            existing._shouldReconnect = false
+            existing.destroy()
           }
-          // Lower pubkey keeps outbound — drop existing inbound
-          console.log(`  Duplicate: keeping outbound to ${result.peerPubkey.slice(0, 16)}...`)
-          existing._shouldReconnect = false
-          existing.destroy()
         }
 
         peerManager.peers.set(result.peerPubkey, conn)
