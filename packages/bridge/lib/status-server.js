@@ -214,12 +214,18 @@ export class StatusServer {
   }
 
   /**
-   * Check if a path is a "heavy" endpoint (expensive to process).
+   * Check if a path is a "heavy" endpoint (fetches external data, rate limited).
    * @param {string} path
    * @returns {boolean}
    */
   _isHeavyEndpoint (path) {
-    return path.match(/^\/block\/\d+\/transactions$/) !== null
+    // Block endpoints - full block fetching
+    if (path.match(/^\/block\/\d+\/(transactions|txids)$/)) return true
+    // Transaction endpoints - P2P/WoC lookup
+    if (path.match(/^\/tx\/[0-9a-f]{64}(\/status)?$/)) return true
+    // Address endpoints - WoC lookup
+    if (path.match(/^\/address\/[^/]+\/history$/)) return true
+    return false
   }
 
   /**
@@ -497,8 +503,10 @@ export class StatusServer {
       }
     }
 
-    // Rate limiting (skip for authenticated requests)
-    if (!authenticated) {
+    // Rate limiting (only for heavy endpoints, skip for authenticated requests)
+    // Lightweight endpoints (dashboard, status, logs) are always allowed - matches Ryan's public design
+    // Heavy endpoints (block scanning, transaction fetching) are rate limited to prevent abuse
+    if (!authenticated && this._isHeavyEndpoint(path)) {
       const rateCheck = this._checkRateLimit(req, path)
       if (!rateCheck.allowed) {
         res.writeHead(429, {
@@ -857,21 +865,31 @@ export class StatusServer {
       }
 
       try {
-        // Get block hash - try headerRelay first, then WoC
+        // Get block hash - try headerRelay (memory), then store (LevelDB)
+        // No WhatsOnChain fallback - pure P2P
         let blockHash = null
+
+        // 1. Try headerRelay (in-memory)
         if (this._headerRelay) {
           blockHash = this._headerRelay.getHashAtHeight?.(height)
         }
+
+        // 2. Try persistent store (LevelDB)
+        if (!blockHash && this._store) {
+          try {
+            const header = await this._store.getHeader(height)
+            if (header?.hash) blockHash = header.hash
+          } catch {}
+        }
+
+        // 3. No WoC fallback - fail if we don't have the header
         if (!blockHash) {
-          // Fall back to WoC for hash lookup
-          const hashResp = await fetch(`https://api.whatsonchain.com/v1/bsv/main/block/height/${height}`)
-          if (!hashResp.ok) {
-            res.writeHead(hashResp.status === 404 ? 404 : 502, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: `Block not found: ${hashResp.status}` }))
-            return
-          }
-          const blockInfo = await hashResp.json()
-          blockHash = blockInfo.hash
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            error: `Header not found for height ${height}. Headers synced: ${this._headerRelay?.bestHeight || 0}`,
+            hint: 'Bridge may need more time to sync headers from BSV P2P network'
+          }))
+          return
         }
 
         // Fetch full block via P2P (60 second timeout for large blocks)
