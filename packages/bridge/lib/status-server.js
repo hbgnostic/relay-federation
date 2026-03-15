@@ -27,6 +27,7 @@ import { handlePostData, handleGetTopics, handleGetData } from './data-endpoints
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DASHBOARD_HTML = readFileSync(join(__dirname, '..', 'dashboard', 'index.html'), 'utf8')
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')).version
 export class StatusServer {
   /**
    * @param {object} opts
@@ -121,6 +122,7 @@ export class StatusServer {
     const status = {
       bridge: {
         name: this._config.name || null,
+        version: PKG_VERSION,
         pubkeyHex: this._config.pubkeyHex || null,
         meshId: this._config.meshId || null,
         uptimeSeconds: Math.floor((Date.now() - this._startedAt) / 1000)
