@@ -6,21 +6,28 @@ import { fileURLToPath } from 'node:url'
 import https from 'node:https'
 import { parseTx } from './output-parser.js'
 import { scanAddress } from './address-scanner.js'
-import { scanBlock, scriptToAsm } from './block-scanner.js'
+import { handlePostData, handleGetTopics, handleGetData } from './data-endpoints.js'
 
 /**
- * StatusServer — localhost-only HTTP server exposing bridge status.
+ * StatusServer — public-facing HTTP server exposing bridge status and APIs.
  *
  * Started by `relay-bridge start`, queried by `relay-bridge status`.
- * Binds to 127.0.0.1 only — not accessible from outside the machine.
+ * Binds to 0.0.0.0 — accessible from outside the machine.
+ * Operator-only endpoints are gated by statusSecret authentication.
  *
  * Endpoints:
- *   GET /       — HTML dashboard (auto-refreshes every 5s)
- *   GET /status — JSON object with bridge state
+ *   GET  /             — HTML dashboard (auto-refreshes every 5s)
+ *   GET  /status       — JSON object with bridge state
+ *   GET  /discover     — Known bridges in the mesh
+ *   POST /broadcast    — Relay a raw transaction
+ *   POST /data         — Submit a signed data envelope
+ *   GET  /data/topics  — List topics with cached data
+ *   GET  /data/:topic  — Query cached envelopes by topic
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DASHBOARD_HTML = readFileSync(join(__dirname, '..', 'dashboard', 'index.html'), 'utf8')
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')).version
 export class StatusServer {
   /**
    * @param {object} opts
@@ -37,6 +44,7 @@ export class StatusServer {
     this._peerManager = opts.peerManager || null
     this._headerRelay = opts.headerRelay || null
     this._txRelay = opts.txRelay || null
+    this._dataRelay = opts.dataRelay || null
     this._config = opts.config || {}
     this._scorer = opts.scorer || null
     this._peerHealth = opts.peerHealth || null
@@ -125,6 +133,7 @@ export class StatusServer {
     const status = {
       bridge: {
         name: this._config.name || null,
+        version: PKG_VERSION,
         pubkeyHex: this._config.pubkeyHex || null,
         meshId: this._config.meshId || null,
         uptimeSeconds: Math.floor((Date.now() - this._startedAt) / 1000)
@@ -210,7 +219,7 @@ export class StatusServer {
    * @returns {boolean}
    */
   _isHeavyEndpoint (path) {
-    return path.match(/^\/block\/\d+\/(scan|transactions)$/) !== null
+    return path.match(/^\/block\/\d+\/transactions$/) !== null
   }
 
   /**
@@ -481,7 +490,6 @@ export class StatusServer {
         if (path.startsWith('/tx/')) ep = '/tx/:txid'
         else if (path.match(/^\/block\/\d+\/txids$/)) ep = '/block/:height/txids'
         else if (path.match(/^\/block\/\d+\/transactions$/)) ep = '/block/:height/transactions'
-        else if (path.match(/^\/block\/\d+\/scan$/)) ep = '/block/:height/scan'
         else if (path.startsWith('/inscription/')) ep = '/inscription/:content'
         else if (path.startsWith('/jobs/')) ep = '/jobs/:id'
         data.endpoints[ep] = (data.endpoints[ep] || 0) + 1
@@ -652,6 +660,53 @@ export class StatusServer {
       const sent = this._txRelay ? this._txRelay.broadcastTx(txid, rawHex) : 0
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ txid, peers: sent }))
+      return
+    }
+
+    // POST /data — submit a signed data envelope for relay
+    if (req.method === 'POST' && path === '/data') {
+      if (!this._dataRelay) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Data relay not available' }))
+        return
+      }
+      let body
+      try {
+        body = await this._readBody(req)
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'invalid_json' }))
+        return
+      }
+      handlePostData(this._dataRelay, body, res)
+      return
+    }
+
+    // GET /data/topics — list topics with summary objects
+    if (req.method === 'GET' && path === '/data/topics') {
+      if (!this._dataRelay) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Data relay not available' }))
+        return
+      }
+      handleGetTopics(this._dataRelay, res)
+      return
+    }
+
+    // GET /data/:topic — query cached envelopes with since/limit/hasMore
+    if (req.method === 'GET' && path.startsWith('/data/')) {
+      if (!this._dataRelay) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Data relay not available' }))
+        return
+      }
+      const topic = decodeURIComponent(path.slice(6))
+      if (!topic) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Topic required' }))
+        return
+      }
+      handleGetData(this._dataRelay, topic, url.searchParams, res)
       return
     }
 
@@ -853,81 +908,6 @@ export class StatusServer {
       } catch (err) {
         res.writeHead(502, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
-      }
-      return
-    }
-
-    // GET /block/:height/scan — scan a block for whales, interesting scripts, miner info
-    // Returns aggregated results instead of raw transaction data to avoid memory issues
-    if (req.method === 'GET' && path.match(/^\/block\/\d+\/scan$/)) {
-      const height = parseInt(path.split('/')[2])
-
-      // Validate height
-      if (isNaN(height) || height < 0) {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Invalid block height' }))
-        return
-      }
-
-      // Need BSV node client for P2P block fetch
-      if (!this._bsvNodeClient) {
-        res.writeHead(503, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'BSV node client not available' }))
-        return
-      }
-
-      try {
-        // Get block hash - try headerRelay first, then WoC
-        let blockHash = null
-        if (this._headerRelay) {
-          blockHash = this._headerRelay.getHashAtHeight?.(height)
-        }
-        if (!blockHash) {
-          // Fall back to WoC for hash lookup
-          const hashResp = await fetch(`https://api.whatsonchain.com/v1/bsv/main/block/height/${height}`)
-          if (!hashResp.ok) {
-            res.writeHead(hashResp.status === 404 ? 404 : 502, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: `Block not found: ${hashResp.status}` }))
-            return
-          }
-          const blockInfo = await hashResp.json()
-          blockHash = blockInfo.hash
-        }
-
-        // Fetch full block via P2P (60 second timeout for large blocks)
-        const block = await this._bsvNodeClient.getBlock(blockHash, 60000)
-
-        // Parse all transactions in-memory (don't serialize to JSON)
-        const transactions = []
-        for (const tx of block.transactions) {
-          try {
-            const parsed = parseTx(tx.rawHex)
-            transactions.push({
-              txid: tx.txid,
-              inputs: parsed.inputs,
-              outputs: parsed.outputs.map(o => ({
-                satoshis: o.satoshis,
-                scriptHex: o.scriptHex
-              }))
-            })
-          } catch (err) {
-            // Skip unparseable transactions
-          }
-        }
-
-        // Scan the block - this processes in memory and returns aggregated results
-        const scanResult = scanBlock(transactions, height)
-
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({
-          height,
-          hash: blockHash,
-          source: 'p2p',
-          ...scanResult
-        }))
-      } catch (err) {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Failed to scan block: ${err.message}` }))
       }
       return
     }

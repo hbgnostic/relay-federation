@@ -5,6 +5,7 @@ import { initConfig, loadConfig, configExists, defaultConfigDir } from './lib/co
 import { PeerManager } from './lib/peer-manager.js'
 import { HeaderRelay } from './lib/header-relay.js'
 import { TxRelay } from './lib/tx-relay.js'
+import { DataRelay } from './lib/data-relay.js'
 import { StatusServer } from './lib/status-server.js'
 // network.js import removed — register/deregister now use local UTXOs + P2P broadcast
 
@@ -296,6 +297,7 @@ async function cmdStart () {
   const peerManager = new PeerManager()
   const headerRelay = new HeaderRelay(peerManager)
   const txRelay = new TxRelay(peerManager)
+  const dataRelay = new DataRelay(peerManager)
 
   // ── 2b. Phase 2: Security layer ────────────────────────────
   const { PeerScorer } = await import('./lib/peer-scorer.js')
@@ -428,7 +430,7 @@ async function cmdStart () {
   console.log(`  Registry: ${registeredPubkeys.size} trusted pubkeys (self + seeds)`)
 
   // ── 4b. Beacon address watcher — detect on-chain registrations ──
-  const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('../registry/lib/cbor.js')
+  const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('@relay-federation/registry/lib/cbor.js')
   const { Transaction: BsvTx } = await import('@bsv/sdk')
 
   // Registry bootstrapped via discoverNewPeers() after server start (no WoC dependency)
@@ -723,9 +725,9 @@ async function cmdStart () {
     // Fallback: scan chain for peers (legacy mode)
     console.log('No seed peers configured. Scanning chain for peers...')
     try {
-      const { scanRegistry } = await import('../registry/lib/scanner.js')
-      const { buildPeerList, excludeSelf } = await import('../registry/lib/discovery.js')
-      const { savePeerCache, loadPeerCache } = await import('../registry/lib/peer-cache.js')
+      const { scanRegistry } = await import('@relay-federation/registry/lib/scanner.js')
+      const { buildPeerList, excludeSelf } = await import('@relay-federation/registry/lib/discovery.js')
+      const { savePeerCache, loadPeerCache } = await import('@relay-federation/registry/lib/peer-cache.js')
 
       const cachePath = join(dir, 'cache', 'peers.json')
       let peers = await loadPeerCache(cachePath)
@@ -764,6 +766,7 @@ async function cmdStart () {
     peerManager,
     headerRelay,
     txRelay,
+    dataRelay,
     config,
     scorer,
     peerHealth,
@@ -839,6 +842,12 @@ async function cmdStart () {
 
   txRelay.on('tx:new', ({ txid }) => {
     const msg = `New tx: ${txid}`
+    console.log(msg)
+    statusServer.addLog(msg)
+  })
+
+  dataRelay.on('data:new', ({ topic, pubkeyHex }) => {
+    const msg = `Data envelope: ${topic} from ${pubkeyHex.slice(0, 16)}...`
     console.log(msg)
     statusServer.addLog(msg)
   })
