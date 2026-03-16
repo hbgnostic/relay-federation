@@ -139,6 +139,12 @@ relay-bridge start
 
 **Important:** The bridge must be stopped when running `register` — both commands need exclusive access to the LevelDB store. Fund first, then register, then start.
 
+### Beacon Backfill
+
+On startup, each bridge scans the beacon address history to discover peers that registered before this bridge came online. This ensures bridges that restart (or join later) immediately know about all registered peers — no manual seed list needed.
+
+The backfill queries WhatsOnChain's `/confirmed/history` endpoint for the beacon address, then replays each registration/deregistration transaction to build the trusted pubkey whitelist.
+
 ### Stake Bond
 
 | Parameter | Value |

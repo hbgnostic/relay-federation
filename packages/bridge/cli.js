@@ -37,8 +37,9 @@ async function backfillBeaconRegistry (registeredPubkeys, selfPubkey) {
       return
     }
 
-    const history = await historyResp.json()
-    if (!Array.isArray(history) || history.length === 0) {
+    const data = await historyResp.json()
+    const history = Array.isArray(data) ? data : (data.result || [])
+    if (history.length === 0) {
       console.log(`  Beacon backfill: no history found`)
       return
     }
