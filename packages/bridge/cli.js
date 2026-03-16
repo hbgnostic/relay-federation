@@ -11,6 +11,111 @@ import { StatusServer } from './lib/status-server.js'
 
 const command = process.argv[2]
 
+/**
+ * Scan historical beacon registrations on startup.
+ * Fetches beacon address history from WhatsOnChain and parses each tx
+ * to populate the registeredPubkeys Set with all valid registrations.
+ *
+ * @param {Set<string>} registeredPubkeys - Set to populate with registered pubkeys
+ * @param {string} selfPubkey - Our own pubkey (skip self-registration)
+ */
+async function backfillBeaconRegistry (registeredPubkeys, selfPubkey) {
+  const { BEACON_ADDRESS, PROTOCOL_PREFIX } = await import('@relay-federation/common/protocol')
+  const { extractOpReturnData, decodePayload } = await import('@relay-federation/registry/lib/cbor.js')
+  const { Transaction } = await import('@bsv/sdk')
+
+  console.log(`  Beacon backfill: scanning ${BEACON_ADDRESS}...`)
+
+  try {
+    // Fetch confirmed history (registrations should be confirmed)
+    const historyResp = await fetch(
+      `https://api.whatsonchain.com/v1/bsv/main/address/${BEACON_ADDRESS}/confirmed/history`,
+      { signal: AbortSignal.timeout(30000) }
+    )
+    if (!historyResp.ok) {
+      console.log(`  Beacon backfill: WoC returned ${historyResp.status}, skipping`)
+      return
+    }
+
+    const history = await historyResp.json()
+    if (!Array.isArray(history) || history.length === 0) {
+      console.log(`  Beacon backfill: no history found`)
+      return
+    }
+
+    console.log(`  Beacon backfill: found ${history.length} transactions`)
+
+    // Track registrations and deregistrations to handle order correctly
+    // Process oldest first (history is typically newest-first from WoC)
+    const sortedHistory = [...history].sort((a, b) => (a.height || 0) - (b.height || 0))
+
+    let registered = 0
+    let deregistered = 0
+    let skipped = 0
+
+    for (const item of sortedHistory) {
+      const txid = item.tx_hash
+      if (!txid) continue
+
+      try {
+        // Rate limit to avoid WoC throttling
+        await new Promise(r => setTimeout(r, 100))
+
+        const txResp = await fetch(
+          `https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/hex`,
+          { signal: AbortSignal.timeout(10000) }
+        )
+        if (!txResp.ok) {
+          skipped++
+          continue
+        }
+
+        const rawHex = await txResp.text()
+        const tx = Transaction.fromHex(rawHex)
+
+        // Find OP_RETURN output
+        const opReturnOutput = tx.outputs.find(out =>
+          out.satoshis === 0 && out.lockingScript.toHex().startsWith('006a')
+        )
+        if (!opReturnOutput) {
+          skipped++
+          continue
+        }
+
+        const { prefix, cborBytes } = extractOpReturnData(opReturnOutput.lockingScript)
+        if (prefix !== PROTOCOL_PREFIX) {
+          skipped++
+          continue
+        }
+
+        const entry = decodePayload(cborBytes)
+        if (!entry || !entry.pubkey) {
+          skipped++
+          continue
+        }
+
+        const pubHex = Buffer.from(entry.pubkey).toString('hex')
+        if (pubHex === selfPubkey) continue // skip self
+
+        if (entry.action === 'register') {
+          registeredPubkeys.add(pubHex)
+          registered++
+        } else if (entry.action === 'deregister') {
+          registeredPubkeys.delete(pubHex)
+          deregistered++
+        }
+      } catch {
+        skipped++
+      }
+    }
+
+    console.log(`  Beacon backfill: +${registered} registered, -${deregistered} deregistered, ${skipped} skipped`)
+    console.log(`  Registry: ${registeredPubkeys.size} trusted pubkeys after backfill`)
+  } catch (err) {
+    console.log(`  Beacon backfill failed: ${err.message}`)
+  }
+}
+
 switch (command) {
   case 'init':
     await cmdInit()
@@ -445,6 +550,9 @@ async function cmdStart () {
     if (ep) seedEndpoints.add(ep)
   }
   console.log(`  Registry: ${registeredPubkeys.size} trusted pubkeys (self + seeds)`)
+
+  // ── 4a-2. Beacon backfill — scan historical registrations on startup ──
+  await backfillBeaconRegistry(registeredPubkeys, config.pubkeyHex)
 
   // ── 4b. Beacon address watcher — detect on-chain registrations ──
   const { extractOpReturnData, decodePayload, PROTOCOL_PREFIX } = await import('@relay-federation/registry/lib/cbor.js')
