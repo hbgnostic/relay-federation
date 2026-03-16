@@ -134,6 +134,8 @@ All transactions currently in the bridge mempool, parsed with full protocol supp
 }
 ```
 
+**Note:** OP_RETURN `data` fields are truncated to 128 hex characters in mempool responses to keep payloads small (typically under 5 KB).
+
 **Supported `protocol` values:** `B` (B://), `BCAT` (BCAT://), `MAP`, `metanet`, `ordinal`, `bsv-20`, `null` (plain OP_RETURN or P2PKH)
 
 ---
@@ -421,6 +423,74 @@ Health, SSL, and usage data for apps configured on this bridge.
   ]
 }
 ```
+
+---
+
+## Indelible Compatibility Endpoints
+
+These `/api/` prefixed endpoints provide compatibility with the Indelible MCP client. They proxy to external data sources (WhatsOnChain, GorillaPool) with caching.
+
+---
+
+### GET /api/address/:addr/history
+
+Transaction history for a BSV address. Proxied from WhatsOnChain `/confirmed/history` with 60-second cache.
+
+**Parameters:**
+- `:addr` — Base58 BSV address (starts with `1` or `3`)
+
+**Response (200):**
+
+```json
+[
+  { "tx_hash": "abc123...", "height": 890100 },
+  { "tx_hash": "def456...", "height": 890050 }
+]
+```
+
+**Error (502):** `{ "error": "Failed to fetch address history: ..." }`
+
+---
+
+### GET /api/address/:addr/balance
+
+Balance for a BSV address. Sums unspent outputs from GorillaPool ordinals API.
+
+**Parameters:**
+- `:addr` — Base58 BSV address (starts with `1` or `3`)
+
+**Response (200):**
+
+```json
+{ "confirmed": 5000000, "unconfirmed": 0 }
+```
+
+**Error (502):** `{ "error": "Balance fetch failed: ..." }`
+
+---
+
+### GET /api/tx/:txid
+
+Full transaction JSON. Proxied from WhatsOnChain.
+
+**Parameters:**
+- `:txid` — 64-character hex transaction ID
+
+**Response (200):** Full WoC transaction JSON (inputs, outputs, block info).
+
+**Error (502):** `{ "error": "tx fetch failed: ..." }`
+
+---
+
+### GET /api/mesh/status
+
+Alias for `GET /status`. Returns the same bridge status summary.
+
+---
+
+### POST /api/broadcast
+
+Alias for `POST /broadcast`. Accepts `{ "rawHex": "..." }` and relays to mesh peers.
 
 ---
 

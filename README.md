@@ -5,7 +5,7 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 ## Features
 
 - **SPV verification** — header sync from BSV P2P nodes, Merkle proof generation and validation
-- **Transaction relay** — lookup, broadcast, UTXO queries, full address history
+- **Transaction relay** — lookup, broadcast, UTXO queries, full address history, Indelible-compatible REST API (`/api/address/:addr/history`, `/api/address/:addr/balance`, `/api/tx/:txid`, `/api/broadcast`)
 - **Inscription indexing** — ordinal inscriptions with content-addressed storage and content serving
 - **BSV-20 tokens** — deploy/mint/transfer tracking, balance queries by address
 - **Protocol parsing** — P2PKH, OP_RETURN, ordinals, B://, BCAT, MAP, MetaNet, BSV-20
@@ -13,6 +13,7 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 - **Price feed** — live BSV/USD from WhatsOnChain
 - **Federation mesh** — bridges discover and verify each other via on-chain stake bonds
 - **Operator dashboard** — glassmorphism UI with Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps tabs, plus a 3D mesh topology map powered by Three.js
+- **Mempool optimization** — OP_RETURN data truncated to 128 hex chars in mempool responses, keeping payloads under 5 KB
 - **422 tests passing** (330 bridge + 92 common/registry/sdk) — MIT license
 
 ## Packages
