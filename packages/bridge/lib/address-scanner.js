@@ -25,14 +25,15 @@ export async function scanAddress (address, store, onProgress = () => {}) {
   // Phase 1: Fetch tx history from WhatsOnChain
   onProgress({ phase: 'discovery', current: 0, total: 0, message: 'Fetching transaction history...' })
 
-  const historyUrl = `${WOC_BASE}/address/${address}/history`
+  const historyUrl = `${WOC_BASE}/address/${address}/confirmed/history`
   const histRes = await fetchWithRetry(historyUrl)
   if (!histRes.ok) {
     throw new Error(`WhatsOnChain returned ${histRes.status} for address history`)
   }
-  const history = await histRes.json()
+  const data = await histRes.json()
+  const history = Array.isArray(data) ? data : (data.result || [])
 
-  if (!Array.isArray(history) || history.length === 0) {
+  if (history.length === 0) {
     onProgress({ phase: 'done', current: 0, total: 0, message: 'No transactions found for this address' })
     return { address, txsScanned: 0, inscriptionsFound: 0, errors: 0 }
   }
