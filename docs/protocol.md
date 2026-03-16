@@ -135,6 +135,19 @@ Payloads are encoded with [CBOR (RFC 8949)](https://www.rfc-editor.org/rfc/rfc89
 
 **Required fields:** `action`, `pubkey`, `reason`, `timestamp`
 
+### 2.6 Beacon Backfill (Startup Discovery)
+
+On startup, bridges scan the beacon address transaction history to discover all prior registrations and deregistrations. This replays the registry state from the chain.
+
+**Process:**
+
+1. Query beacon address confirmed history (e.g. WhatsOnChain `/v1/bsv/main/address/{BEACON_ADDRESS}/confirmed/history`)
+2. For each transaction, fetch raw hex and decode the CBOR payload
+3. Apply `register` and `deregister` actions in chain order (by block height)
+4. Result: `registeredPubkeys` map populated with all known bridges
+
+This ensures bridges that restart or join the mesh later can immediately accept inbound connections from previously registered peers, without relying on hardcoded seed lists.
+
 ---
 
 ## 3. Cryptographic Handshake
