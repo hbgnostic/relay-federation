@@ -390,6 +390,18 @@ async function cmdStart () {
   // Start anchor monitoring
   anchorManager.startMonitoring()
 
+  // Mempool sampling — store a sample every 10 minutes for historical charts
+  const MEMPOOL_SAMPLE_INTERVAL_MS = 10 * 60 * 1000
+  const mempoolSampleTimer = setInterval(async () => {
+    try {
+      const size = txRelay.mempool.size
+      await store.putMempoolSample(size)
+    } catch {}
+  }, MEMPOOL_SAMPLE_INTERVAL_MS)
+  if (mempoolSampleTimer.unref) mempoolSampleTimer.unref()
+  // Take an initial sample immediately
+  store.putMempoolSample(txRelay.mempool.size).catch(() => {})
+
   console.log(`  Security: scoring, validation, health, anchors active`)
 
   // ── 3. Address watcher — watch our own address + beacon ──
@@ -894,6 +906,7 @@ async function cmdStart () {
     console.log('\nShutting down...')
     clearInterval(pingTimer)
     clearInterval(healthTimer)
+    clearInterval(mempoolSampleTimer)
     anchorManager.stopMonitoring()
     bsvNode.disconnect()
     gossipManager.stop()

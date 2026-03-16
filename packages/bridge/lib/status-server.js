@@ -562,6 +562,29 @@ export class StatusServer {
       return
     }
 
+    // GET /mempool/history — mempool size samples over time
+    if (req.method === 'GET' && path === '/mempool/history') {
+      if (!this._store) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Store not available' }))
+        return
+      }
+      const hours = Math.min(parseInt(url.searchParams.get('hours') || '24', 10) || 24, 72)
+      try {
+        const samples = await this._store.getMempoolHistory(hours)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          hours,
+          count: samples.length,
+          samples
+        }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
     // GET /discover — public list of all known bridges in the mesh
     if (req.method === 'GET' && path === '/discover') {
       const bridges = []

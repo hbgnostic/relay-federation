@@ -42,6 +42,7 @@ export class PersistentStore extends EventEmitter {
     this._txBlock = null
     this._content = null
     this._tokens = null
+    this._mempool = null
     this._contentDir = join(dataDir, 'content')
   }
 
@@ -61,6 +62,7 @@ export class PersistentStore extends EventEmitter {
     this._txBlock = this.db.sublevel('txBlock', { valueEncoding: 'json' })
     this._content = this.db.sublevel('content', { valueEncoding: 'json' })
     this._tokens = this.db.sublevel('tokens', { valueEncoding: 'json' })
+    this._mempool = this.db.sublevel('mempool', { valueEncoding: 'json' })
     await mkdir(this._contentDir, { recursive: true })
     this.emit('open')
   }
@@ -564,6 +566,51 @@ export class PersistentStore extends EventEmitter {
       tokens.push(value)
     }
     return tokens
+  }
+
+  // ── Mempool Sampling ────────────────────────────────────
+
+  /**
+   * Store a mempool sample.
+   * Key format: padded timestamp for lexicographic ordering.
+   * @param {number} size — number of transactions in mempool
+   * @param {number} [bytes=0] — estimated total bytes
+   */
+  async putMempoolSample (size, bytes = 0) {
+    const ts = Date.now()
+    const key = String(ts).padStart(15, '0')
+    await this._mempool.put(key, { ts, size, bytes })
+  }
+
+  /**
+   * Get mempool history for the last N hours.
+   * Also prunes entries older than the retention window.
+   * @param {number} [hours=24] — how many hours of history to return
+   * @returns {Promise<Array<{ ts: number, size: number, bytes: number }>>}
+   */
+  async getMempoolHistory (hours = 24) {
+    const now = Date.now()
+    const cutoff = now - hours * 60 * 60 * 1000
+    const cutoffKey = String(cutoff).padStart(15, '0')
+
+    const samples = []
+    const toDelete = []
+
+    for await (const [key, value] of this._mempool.iterator()) {
+      if (value.ts < cutoff) {
+        toDelete.push(key)
+      } else {
+        samples.push(value)
+      }
+    }
+
+    // Prune old entries
+    if (toDelete.length > 0) {
+      const batch = toDelete.map(k => ({ type: 'del', key: k }))
+      await this._mempool.batch(batch)
+    }
+
+    return samples
   }
 
   /** Safe get — returns null instead of throwing for missing keys. */
