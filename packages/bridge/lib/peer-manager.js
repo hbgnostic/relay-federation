@@ -184,15 +184,21 @@ export class PeerManager extends EventEmitter {
                   // Tie-break duplicate connections by pubkey
                   const existing = this.peers.get(result.peerPubkey)
                   if (existing) {
-                    if (opts.pubkeyHex < result.peerPubkey) {
+                    // If existing connection is dead (reconnecting), prefer new working connection
+                    if (!existing.connected) {
+                      existing._shouldReconnect = false
+                      existing.destroy()
+                      this.peers.delete(result.peerPubkey)
+                    } else if (opts.pubkeyHex < result.peerPubkey) {
                       // Lower pubkey keeps outbound — reject this inbound
                       ws.close()
                       return
+                    } else {
+                      // Higher pubkey keeps inbound — drop existing outbound
+                      existing._shouldReconnect = false
+                      existing.destroy()
+                      this.peers.delete(result.peerPubkey)
                     }
-                    // Higher pubkey keeps inbound — drop existing outbound
-                    existing._shouldReconnect = false
-                    existing.destroy()
-                    this.peers.delete(result.peerPubkey)
                   }
 
                   // Handshake complete — accept peer
