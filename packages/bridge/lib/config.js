@@ -52,6 +52,7 @@ export async function initConfig (dir = DEFAULT_DIR, opts = {}) {
     statusPort: 9333,
     statusSecret: randomBytes(32).toString('hex'),
     dataDir: join(dir, 'data'),
+    headerServiceUrl: '', // e.g., 'http://localhost:8090' for traceport block-headers-service
     seedPeers: [],
     // apps: [
     //   {

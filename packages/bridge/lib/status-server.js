@@ -905,12 +905,28 @@ export class StatusServer {
           } catch {}
         }
 
-        // 3. No WoC fallback - fail if we don't have the header
+        // 3. Try external header service (e.g., traceport block-headers-service)
+        if (!blockHash && this._config?.headerServiceUrl) {
+          try {
+            const hsUrl = `${this._config.headerServiceUrl}/api/v1/chain/header/byHeight?height=${height}`
+            const hsResp = await fetch(hsUrl, { signal: AbortSignal.timeout(10000) })
+            if (hsResp.ok) {
+              const headers = await hsResp.json()
+              if (Array.isArray(headers) && headers.length > 0 && headers[0].hash) {
+                blockHash = headers[0].hash
+              }
+            }
+          } catch {}
+        }
+
+        // 4. Fail if we don't have the header from any source
         if (!blockHash) {
           res.writeHead(404, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({
             error: `Header not found for height ${height}. Headers synced: ${this._headerRelay?.bestHeight || 0}`,
-            hint: 'Bridge may need more time to sync headers from BSV P2P network'
+            hint: this._config?.headerServiceUrl
+              ? 'Header service did not return a result for this height'
+              : 'Configure headerServiceUrl in config.json to access blocks outside synced range'
           }))
           return
         }
