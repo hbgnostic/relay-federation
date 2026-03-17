@@ -65,6 +65,11 @@ const bridge = new RelayBridge(baseUrl, options?)
 | `getAddressHistory(address)` | `{ address, history }` | Transaction history for an address |
 | `discover()` | `{ count, bridges }` | All bridges known to this node |
 | `getApps()` | `{ apps }` | Health/SSL/usage for configured apps |
+| `getSessions(address)` | `{ address, sessions, count }` | Session metadata for an address |
+| `indexSession(session)` | `{ ok }` | Index a session (syncs to peers via SessionRelay) |
+| `backfillSessions(sessions)` | `{ ok, indexed }` | Bulk-index sessions |
+| `getRawTx(txid)` | hex string | Raw transaction hex |
+| `getUnspent(address)` | array of UTXOs | Unspent outputs for an address |
 
 ### Operator Methods (require `auth`)
 
