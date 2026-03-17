@@ -5,10 +5,11 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 ## Features
 
 - **SPV verification** — header sync from BSV P2P nodes, Merkle proof generation and validation
-- **Transaction relay** — lookup, broadcast, UTXO queries, full address history, Indelible-compatible REST API (`/api/address/:addr/history`, `/api/address/:addr/balance`, `/api/tx/:txid`, `/api/broadcast`)
+- **Transaction relay** — lookup, broadcast, UTXO queries, full address history, Indelible-compatible REST API (`/api/address/:addr/history`, `/api/address/:addr/unspent`, `/api/tx/:txid/hex`, `/api/broadcast`)
 - **Inscription indexing** — ordinal inscriptions with content-addressed storage and content serving
 - **BSV-20 tokens** — deploy/mint/transfer tracking, balance queries by address
 - **Protocol parsing** — P2PKH, OP_RETURN, ordinals, B://, BCAT, MAP, MetaNet, BSV-20
+- **Session storage** — bridges store Indelible session metadata in LevelDB with endpoints for index, read, and backfill. Sessions sync automatically between peers via SessionRelay (WebSocket peer-to-peer)
 - **Data envelope relay** — broadcast signed, TTL-bounded, topic-routed ephemeral data (rates, attestations, notifications) across the mesh without on-chain transactions
 - **Price feed** — live BSV/USD from WhatsOnChain
 - **Federation mesh** — bridges discover and verify each other via on-chain stake bonds
@@ -33,6 +34,7 @@ A federated mesh network for BSV. Each bridge is a lightweight SPV node that syn
 | [Protocol Spec](docs/protocol.md) | On-chain registry, CBOR format, handshake, gossip, peer scoring |
 | [Whitepaper](docs/whitepaper.md) | Architecture and design of the Federated SPV Relay Mesh |
 | [SDK README](packages/sdk/README.md) | Client library quick start and API reference |
+| [App Integration](docs/app-integration.md) | How to build apps on the federation — architecture, SDK, REST, examples |
 
 ## Quick Start
 
@@ -241,6 +243,8 @@ node examples/mesh-health.js
 
 **Data Relay:** Signed ephemeral data envelopes (rates, attestations, notifications) propagate to peers that declared matching topic interests. Envelopes are TTL-bounded, stored in per-topic ring buffers, and pruned on expiry. Pull-based catch-up lets bridges that come online late request missed data from peers.
 
+**Session Relay:** Indelible session metadata (txid, address, timestamp, summary) is stored in a LevelDB sublevel and synced across the mesh via WebSocket. When a bridge receives a new session index, it propagates to all peers. Bridges that join later pull the full session catalog from existing peers on connect.
+
 **Registry:** Bridges register on-chain using a CBOR-encoded OP_RETURN protocol. Other bridges scan the chain to discover peers, filtering by mesh ID and capabilities.
 
 **Dashboard:** Each bridge runs a local HTTP server (default port 9333) with a glassmorphism dashboard — tabs for Overview, Mempool, Explorer, Inscriptions, Tokens, and Apps. The dashboard bootstraps from its own bridge and discovers the full mesh via `/discover` — no hardcoded seeds, no single point of failure. Operator login via `statusSecret`.
@@ -309,9 +313,13 @@ Access at `http://<IP>:9333`. Login with operator secret (`relay-bridge secret`)
 
 Tabs: Overview | Mempool | Explorer | Inscriptions | Tokens | Apps
 
-### Adding apps to a bridge
+### Building on the federation
 
-Edit `~/.relay-bridge/config.json`:
+Apps are consumers of the federation REST API — they run anywhere and talk to bridges over HTTP. See the full guide: **[Building Apps on the Federation](docs/app-integration.md)**
+
+### Monitoring apps
+
+The Apps tab monitors health for apps that depend on your bridge. Add them to `~/.relay-bridge/config.json`:
 
 ```json
 {
@@ -319,14 +327,14 @@ Edit `~/.relay-bridge/config.json`:
     {
       "name": "My App",
       "url": "https://myapp.com",
-      "healthUrl": "http://127.0.0.1:3000",
+      "healthUrl": "https://myapp.com/health",
       "bridgeDomain": "bridge.myapp.com"
     }
   ]
 }
 ```
 
-Restart the bridge. Apps appear in the Apps tab with health checks, SSL status, and latency monitoring.
+Restart the bridge. The dashboard shows health status, SSL info, latency, and uptime for each app. This is purely observational — the bridge monitors the app, it doesn't host it.
 
 ## License
 

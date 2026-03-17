@@ -121,6 +121,38 @@ for (const bridge of bridges) {
 }
 ```
 
+### Round-Robin Failover
+
+For production apps, round-robin across multiple bridges so one failure doesn't take you down:
+
+```javascript
+const bridges = [
+  new RelayBridge('http://bridge-alpha:9333', { timeout: 8000 }),
+  new RelayBridge('http://bridge-beta:9333', { timeout: 8000 }),
+  new RelayBridge('http://bridge-gamma:9333', { timeout: 8000 }),
+]
+
+let idx = 0
+
+async function meshCall(fn) {
+  const startIdx = idx++ % bridges.length
+  for (let i = 0; i < bridges.length; i++) {
+    try {
+      return await fn(bridges[(startIdx + i) % bridges.length])
+    } catch (_) { /* try next */ }
+  }
+  throw new Error('All bridges failed')
+}
+
+// Usage
+const tx = await meshCall(b => b.getTx('abc123...'))
+const result = await meshCall(b => b.broadcast('0100...'))
+```
+
+## Building Apps
+
+Apps are consumers of the federation — they run anywhere and talk to bridges via this SDK or plain REST. See the full guide: **[Building Apps on the Federation](../../docs/app-integration.md)**
+
 ## Requirements
 
 - Node.js >= 18 (uses native `fetch`)

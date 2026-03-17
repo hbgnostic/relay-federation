@@ -494,6 +494,105 @@ Alias for `POST /broadcast`. Accepts `{ "rawHex": "..." }` and relays to mesh pe
 
 ---
 
+### GET /api/address/:addr/unspent
+
+Unspent transaction outputs for a BSV address. Proxied from GorillaPool ordinals API.
+
+**Parameters:**
+- `:addr` — BSV address (base58check)
+
+**Response (200):**
+
+```json
+[
+  {
+    "txid": "abc123...",
+    "vout": 0,
+    "satoshis": 50000,
+    "script": "76a914..."
+  }
+]
+```
+
+---
+
+### GET /api/tx/:txid/hex
+
+Raw transaction hex. Checks local cache, then fetches from WhatsOnChain.
+
+**Parameters:**
+- `:txid` — 64-character hex transaction ID
+
+**Response (200):** Raw hex string (text/plain).
+
+**Error (404):** Transaction not found.
+
+---
+
+### GET /api/sessions/:address
+
+Session metadata for a BSV address. Returns all indexed sessions from the bridge's LevelDB store. Sessions are indexed via `POST /api/sessions/index` and sync across bridges via SessionRelay.
+
+**Parameters:**
+- `:address` — BSV address (base58check)
+
+**Response (200):**
+
+```json
+{
+  "address": "1Abc...",
+  "sessions": [
+    {
+      "txid": "abc123...",
+      "address": "1Abc...",
+      "timestamp": 1710000000,
+      "summary": "Session summary text"
+    }
+  ],
+  "count": 42
+}
+```
+
+---
+
+### POST /api/sessions/index
+
+Index a session on this bridge. The session metadata is stored in LevelDB and propagated to all mesh peers via SessionRelay.
+
+**Request body:**
+
+```json
+{
+  "address": "1Abc...",
+  "txid": "abc123...",
+  "timestamp": 1710000000,
+  "summary": "Session summary text"
+}
+```
+
+**Response (200):** `{ "ok": true }`
+
+---
+
+### POST /api/sessions/backfill
+
+Bulk-index sessions. Accepts an array of session objects.
+
+**Request body:**
+
+```json
+{
+  "sessions": [
+    { "address": "1Abc...", "txid": "abc123...", "timestamp": 1710000000, "summary": "..." },
+    { "address": "1Abc...", "txid": "def456...", "timestamp": 1710003600, "summary": "..." }
+  ]
+}
+```
+
+**Response (200):** `{ "ok": true, "indexed": 2 }`
+
+---
+
 ### GET /price
 
 Live BSV/USD exchange rate. Cached in memory with 60-second TTL, sourced from WhatsOnChain.

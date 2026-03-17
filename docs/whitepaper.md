@@ -311,6 +311,20 @@ The API layer implements layered security:
 - **Rate limiting**: Unauthenticated requests are rate-limited.
 - **CORS**: Configurable origin whitelisting for browser-based access.
 
+### 8.4 Application Integration Model
+
+Applications built on the relay mesh are **consumers** of the federation REST API, not tenants hosted on bridge infrastructure. A bridge is a piece of infrastructure — like a database or CDN node — that applications connect to over the network. The application itself runs wherever its developer chooses: a cloud platform, a dedicated server, a static hosting service, or a local machine.
+
+This separation follows naturally from the API layer design. Section 8.1 defines the HTTP endpoints that bridges expose. Any HTTP client — a web application backend, a CLI tool, a browser — can call these endpoints. The bridge does not need to know what application is calling it, and the application does not need to run on the same machine as the bridge.
+
+The recommended integration pattern uses multiple bridges for resilience. An application maintains a list of known bridge endpoints (seeded manually or via the `/discover` endpoint) and round-robins requests across them with per-request timeouts. If a bridge is unreachable, the application tries the next. This mirrors how the bridges themselves handle peer failures in the mesh layer.
+
+The SDK (`@relay-federation/sdk`) abstracts bridge selection for applications that prefer a library over raw HTTP. For applications that need full control — custom retry logic, request signing, or integration with existing HTTP infrastructure — the REST API is the primary interface.
+
+The Apps tab in the operator dashboard (Section 8.2) serves a monitoring function: bridge operators can configure health checks for applications that depend on their bridge, regardless of where those applications are hosted. This is observational, not operational — the bridge monitors the application, it does not host or manage it.
+
+See [Building Apps on the Federation](app-integration.md) for implementation details, code examples, and a production checklist.
+
 ---
 
 ## 9. Supervision & Self-Healing

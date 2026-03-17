@@ -318,13 +318,32 @@ relay-bridge backfill --from=800000 --to=890000
 
 ---
 
+## Session Storage
+
+Bridges store Indelible session metadata in a `sessions` LevelDB sublevel. Sessions are indexed by `{address}:{txid}` and contain `txid`, `address`, `timestamp`, and `summary`.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sessions/:address` | GET | All sessions for an address (sorted by timestamp desc) |
+| `/api/sessions/index` | POST | Index a single session `{ address, txid, timestamp, summary }` |
+| `/api/sessions/backfill` | POST | Bulk-index sessions `{ sessions: [...] }` |
+
+### Peer Sync (SessionRelay)
+
+Sessions propagate across the mesh via WebSocket. When a bridge indexes a new session, it sends `session_index` to all peers. New peers pull the full catalog on connect via `session_sync`. Deduplication is by key (`address:txid`), so duplicate indexes are harmless.
+
+---
+
 ## Files (updated)
 
 | File | Role |
 |---|---|
 | `packages/bridge/lib/output-parser.js` | Parsing + `scriptHash` on every output |
-| `packages/bridge/lib/persistent-store.js` | Storage: txStatus, txBlock, content (CAS), tokens sublevels |
-| `packages/bridge/lib/status-server.js` | All HTTP endpoints including price, tokens, proof, tx status |
+| `packages/bridge/lib/persistent-store.js` | Storage: txStatus, txBlock, content (CAS), tokens, sessions sublevels |
+| `packages/bridge/lib/status-server.js` | All HTTP endpoints including price, tokens, proof, tx status, sessions |
+| `packages/bridge/lib/session-relay.js` | WebSocket session sync between peers (SessionRelay) |
 | `packages/bridge/cli.js` | CLI commands including `backfill` |
 | `packages/bridge/test/persistent-store.test.js` | Indexing tests (confirmation, CAS, tokens, backfill) |
 | `dashboard/index.html` | Protocol badges, Tx Explorer, parsed data rendering |

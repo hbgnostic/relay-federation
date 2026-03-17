@@ -630,6 +630,41 @@ Payment for data operations via BRC-105 on HTTP endpoints is deferred.
 
 ---
 
+## 11. Session Relay Protocol
+
+Bridges store and sync Indelible session metadata across the mesh via WebSocket. This enables fast session lookups without scanning the blockchain.
+
+### 11.1 Storage
+
+Each bridge maintains a `sessions` sublevel in LevelDB, keyed by `{address}:{txid}`. Values are JSON objects:
+
+```json
+{
+  "txid": "abc123...",
+  "address": "1Abc...",
+  "timestamp": 1710000000,
+  "summary": "Session summary text"
+}
+```
+
+### 11.2 Indexing
+
+Sessions are indexed via `POST /api/sessions/index`. The MCP/CLI calls this endpoint on all known bridges after broadcasting a save transaction. Bulk indexing is available via `POST /api/sessions/backfill`.
+
+### 11.3 Peer Sync
+
+When a bridge receives a new session index, it propagates the metadata to all connected WebSocket peers. The wire message follows the same pattern as header relay:
+
+1. **On index:** Bridge sends `session_index` message to all peers with the session metadata
+2. **On connect:** New peers request the full session catalog from existing peers via `session_sync`
+3. **Deduplication:** Sessions are keyed by `{address}:{txid}`, so duplicate indexes are idempotent
+
+### 11.4 Query
+
+`GET /api/sessions/:address` returns all indexed sessions for an address, sorted by timestamp descending. The response includes a `count` field for pagination awareness.
+
+---
+
 ## Cryptographic Primitives
 
 All cryptographic operations use the BSV SDK (`@bsv/sdk`):
