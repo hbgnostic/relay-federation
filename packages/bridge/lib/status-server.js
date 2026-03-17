@@ -793,7 +793,7 @@ export class StatusServer {
       return
     }
 
-    // GET /address/:addr/history — transaction history for an address (via WoC)
+    // GET /address/:addr/history — local sessions first, WoC fallback
     const addrMatch = path.match(/^\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
     if (req.method === 'GET' && addrMatch) {
       const addr = addrMatch[1]
@@ -804,12 +804,30 @@ export class StatusServer {
         return
       }
       try {
-        const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
-        if (!resp.ok) throw new Error('WoC returned ' + resp.status)
-        const data = await resp.json()
-        const history = Array.isArray(data) ? data : (data.result || [])
+        // Local sessions from LevelDB (source of truth)
+        const localSessions = await this._store.getSessions(addr, 2000)
+        const seen = new Set(localSessions.map(s => s.txId))
+        const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
+
+        // WoC fallback for older txs + block heights
+        try {
+          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+          if (resp.ok) {
+            const data = await resp.json()
+            const wocHistory = Array.isArray(data) ? data : (data.result || [])
+            for (const entry of wocHistory) {
+              if (seen.has(entry.tx_hash)) {
+                const match = history.find(h => h.tx_hash === entry.tx_hash)
+                if (match && entry.height > 0) match.height = entry.height
+              } else {
+                history.push(entry)
+                seen.add(entry.tx_hash)
+              }
+            }
+          }
+        } catch {} // WoC failure doesn't block response
+
         this._addressCache.set(addr, { data: history, time: Date.now() })
-        // Prune cache if it grows too large
         if (this._addressCache.size > 100) {
           const oldest = this._addressCache.keys().next().value
           this._addressCache.delete(oldest)
@@ -817,7 +835,7 @@ export class StatusServer {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ address: addr, history, cached: false }))
       } catch (err) {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Failed to fetch address history: ' + err.message }))
       }
       return
@@ -1188,7 +1206,7 @@ export class StatusServer {
       return
     }
 
-    // GET /api/address/:addr/history — proxy to WoC confirmed/history (web app compat)
+    // GET /api/address/:addr/history — local sessions first, WoC fallback (web app compat)
     const apiHistMatch = path.match(/^\/api\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
     if (req.method === 'GET' && apiHistMatch) {
       const addr = apiHistMatch[1]
@@ -1199,10 +1217,29 @@ export class StatusServer {
         return
       }
       try {
-        const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
-        if (!resp.ok) throw new Error('WoC returned ' + resp.status)
-        const data = await resp.json()
-        const history = Array.isArray(data) ? data : (data.result || [])
+        // Local sessions from LevelDB (source of truth)
+        const localSessions = await this._store.getSessions(addr, 2000)
+        const seen = new Set(localSessions.map(s => s.txId))
+        const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
+
+        // WoC fallback for older txs + block heights
+        try {
+          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+          if (resp.ok) {
+            const data = await resp.json()
+            const wocHistory = Array.isArray(data) ? data : (data.result || [])
+            for (const entry of wocHistory) {
+              if (seen.has(entry.tx_hash)) {
+                const match = history.find(h => h.tx_hash === entry.tx_hash)
+                if (match && entry.height > 0) match.height = entry.height
+              } else {
+                history.push(entry)
+                seen.add(entry.tx_hash)
+              }
+            }
+          }
+        } catch {} // WoC failure doesn't block response
+
         this._addressCache.set(addr, { data: history, time: Date.now() })
         if (this._addressCache.size > 100) {
           const oldest = this._addressCache.keys().next().value
@@ -1211,7 +1248,7 @@ export class StatusServer {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(history))
       } catch (err) {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Failed to fetch address history: ' + err.message }))
       }
       return
@@ -1260,6 +1297,75 @@ export class StatusServer {
       const status = await this.getStatus({ authenticated })
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(status))
+      return
+    }
+
+    // ── Session Storage (Indelible) ─────────────────────────
+
+    // POST /api/sessions/index — MCP/CLI pushes session metadata after broadcast (open, like /api/broadcast)
+    if (req.method === 'POST' && path === '/api/sessions/index') {
+      try {
+        const body = await this._readBody(req)
+        if (!body.txId || !body.address) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'txId and address required' }))
+          return
+        }
+        const record = await this._store.putSession(body)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, txId: record.txId }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // GET /api/sessions/{addr} — read session list for an address
+    if (req.method === 'GET' && path.startsWith('/api/sessions/')) {
+      const addr = path.slice('/api/sessions/'.length)
+      if (!addr) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'address required' }))
+        return
+      }
+      try {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 2000)
+        const sessions = await this._store.getSessions(addr, limit)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ sessions, count: sessions.length }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // POST /api/sessions/backfill — bulk import for migration
+    if (req.method === 'POST' && path === '/api/sessions/backfill') {
+      if (!authenticated) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized. Provide statusSecret via ?auth= or Authorization header.' }))
+        return
+      }
+      try {
+        const body = await this._readBody(req)
+        const sessions = (body.sessions || []).map(s => ({
+          txId: s.txId, address: body.address || s.address,
+          session_id: s.session_id || s.sessionId || null,
+          prev_session_id: s.prev_session_id || s.prevTxId || null,
+          summary: s.summary || '',
+          message_count: s.message_count || s.messageCount || 0,
+          save_type: s.save_type || s.saveType || 'full',
+          timestamp: s.timestamp || null
+        }))
+        const imported = await this._store.putSessionsBatch(sessions)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, imported }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
       return
     }
 
