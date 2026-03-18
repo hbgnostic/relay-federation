@@ -118,6 +118,8 @@ export class BSVPeer extends EventEmitter {
    * @param {{ height: number, hash: string, prevHash: string }} [opts.checkpoint]
    * @param {number} [opts.syncIntervalMs] — Header sync interval (default 30s)
    * @param {number} [opts.pingIntervalMs] — Keepalive ping interval (default 120s)
+   * @param {Map} [opts.headerHashes] — Shared height→hash Map (from BSVNodeClient)
+   * @param {Map} [opts.hashToHeight] — Shared hash→height Map (from BSVNodeClient)
    */
   constructor (opts = {}) {
     super()
@@ -136,13 +138,21 @@ export class BSVPeer extends EventEmitter {
     this._syncTimer = null
     this._pingTimer = null
 
-    // Header tracking
+    // Header tracking — use shared Maps if provided, otherwise create own
     this._bestHeight = this._checkpoint.height
     this._bestHash = this._checkpoint.hash
-    this._headerHashes = new Map()
-    this._headerHashes.set(this._checkpoint.height, this._checkpoint.hash)
-    if (this._checkpoint.prevHash) {
-      this._headerHashes.set(this._checkpoint.height - 1, this._checkpoint.prevHash)
+    if (opts.headerHashes && opts.hashToHeight) {
+      this._headerHashes = opts.headerHashes
+      this._hashToHeight = opts.hashToHeight
+    } else {
+      this._headerHashes = new Map()
+      this._hashToHeight = new Map()
+      this._headerHashes.set(this._checkpoint.height, this._checkpoint.hash)
+      this._hashToHeight.set(this._checkpoint.hash, this._checkpoint.height)
+      if (this._checkpoint.prevHash) {
+        this._headerHashes.set(this._checkpoint.height - 1, this._checkpoint.prevHash)
+        this._hashToHeight.set(this._checkpoint.prevHash, this._checkpoint.height - 1)
+      }
     }
 
     // Peer info
@@ -248,6 +258,7 @@ export class BSVPeer extends EventEmitter {
    */
   seedHeader (height, hash) {
     this._headerHashes.set(height, hash)
+    this._hashToHeight.set(hash, height)
     if (height > this._bestHeight) {
       this._bestHeight = height
       this._bestHash = hash
@@ -509,13 +520,8 @@ export class BSVPeer extends EventEmitter {
       const blockHash = internalToHash(sha256d(rawHeader))
       const prevHash = internalToHash(prevHashBuf)
 
-      let height = -1
-      for (const [h, hash] of this._headerHashes) {
-        if (hash === prevHash) {
-          height = h + 1
-          break
-        }
-      }
+      const prevHeight = this._hashToHeight.get(prevHash)
+      let height = prevHeight !== undefined ? prevHeight + 1 : -1
 
       if (height < 0) {
         offset += HEADER_BYTES
@@ -527,6 +533,7 @@ export class BSVPeer extends EventEmitter {
       }
 
       this._headerHashes.set(height, blockHash)
+      this._hashToHeight.set(blockHash, height)
       if (height > this._bestHeight) {
         this._bestHeight = height
         this._bestHash = blockHash
