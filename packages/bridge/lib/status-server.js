@@ -869,7 +869,8 @@ export class StatusServer {
     }
 
     // GET /block/:height/transactions — fetch full block with all parsed transactions via P2P
-    // This is the bulk endpoint for scanners that need all transaction data in one call
+    // Streams as NDJSON (newline-delimited JSON) for memory efficiency with large blocks
+    // First line is header metadata, subsequent lines are individual transactions
     if (req.method === 'GET' && path.match(/^\/block\/\d+\/transactions$/)) {
       const height = parseInt(path.split('/')[2])
 
@@ -931,37 +932,47 @@ export class StatusServer {
           return
         }
 
-        // Fetch full block via P2P (60 second timeout for large blocks)
+        // Fetch full block via P2P (uses retry logic with multiple peers)
         const block = await this._bsvNodeClient.getBlock(blockHash, 60000)
 
-        // Parse all transactions
-        const transactions = []
+        // Stream as NDJSON - one JSON object per line for memory efficiency
+        // This allows GC to collect each transaction after it's written
+        res.writeHead(200, {
+          'Content-Type': 'application/x-ndjson',
+          'Transfer-Encoding': 'chunked'
+        })
+
+        // First line: block header/metadata
+        res.write(JSON.stringify({
+          type: 'header',
+          height,
+          hash: blockHash,
+          txCount: block.transactions.length,
+          source: 'p2p'
+        }) + '\n')
+
+        // Stream each transaction as a separate line
         for (const tx of block.transactions) {
           try {
             const parsed = parseTx(tx.rawHex)
-            transactions.push({
+            res.write(JSON.stringify({
+              type: 'tx',
               txid: tx.txid,
               size: tx.rawHex.length / 2,
               inputs: parsed.inputs,
               outputs: parsed.outputs
-            })
+            }) + '\n')
           } catch (err) {
-            transactions.push({
+            res.write(JSON.stringify({
+              type: 'tx',
               txid: tx.txid,
               size: tx.rawHex.length / 2,
               error: 'parse failed: ' + err.message
-            })
+            }) + '\n')
           }
         }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({
-          height,
-          hash: blockHash,
-          txCount: transactions.length,
-          transactions,
-          source: 'p2p'
-        }))
+        res.end()
       } catch (err) {
         res.writeHead(502, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
