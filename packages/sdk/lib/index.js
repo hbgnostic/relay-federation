@@ -140,6 +140,81 @@ export class RelayBridge {
     return this._get('/apps')
   }
 
+  // ─── Session Endpoints ─────────────────────────────────────
+
+  /**
+   * Get session metadata for a BSV address.
+   *
+   * @param {string} address — Base58 BSV address
+   * @returns {Promise<{ address: string, sessions: Array, count: number }>}
+   */
+  async getSessions (address) {
+    if (!address || address.length < 25 || address.length > 35) {
+      throw new Error('Invalid BSV address')
+    }
+    return this._get(`/api/sessions/${address}`)
+  }
+
+  /**
+   * Index a session on this bridge. Propagates to peers via SessionRelay.
+   *
+   * @param {object} session
+   * @param {string} session.address — BSV address
+   * @param {string} session.txid — Transaction ID
+   * @param {number} session.timestamp — Unix timestamp
+   * @param {string} session.summary — Session summary
+   * @returns {Promise<{ ok: boolean }>}
+   */
+  async indexSession (session) {
+    if (!session || !session.address || !session.txid) {
+      throw new Error('session.address and session.txid are required')
+    }
+    return this._post('/api/sessions/index', session)
+  }
+
+  /**
+   * Bulk-index sessions on this bridge.
+   *
+   * @param {Array} sessions — Array of session objects
+   * @returns {Promise<{ ok: boolean, indexed: number }>}
+   */
+  async backfillSessions (sessions) {
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      throw new Error('sessions must be a non-empty array')
+    }
+    return this._post('/api/sessions/backfill', { sessions })
+  }
+
+  /**
+   * Get raw transaction hex.
+   *
+   * @param {string} txid — 64-character hex transaction ID
+   * @returns {Promise<string>} Raw hex string
+   */
+  async getRawTx (txid) {
+    if (!txid || txid.length !== 64) {
+      throw new Error('txid must be a 64-character hex string')
+    }
+    const res = await this._fetch(`/api/tx/${txid}/hex`)
+    if (!res.ok) {
+      throw new BridgeError(res.status, await res.text())
+    }
+    return res.text()
+  }
+
+  /**
+   * Get unspent transaction outputs for a BSV address.
+   *
+   * @param {string} address — Base58 BSV address
+   * @returns {Promise<Array<{ txid: string, vout: number, satoshis: number, script: string }>>}
+   */
+  async getUnspent (address) {
+    if (!address || address.length < 25 || address.length > 35) {
+      throw new Error('Invalid BSV address')
+    }
+    return this._get(`/api/address/${address}/unspent`)
+  }
+
   // ─── Operator Endpoints (require auth) ──────────────────────
 
   /**

@@ -547,7 +547,7 @@ export class StatusServer {
                 isP2PKH: o.isP2PKH,
                 hash160: o.hash160,
                 type: o.type,
-                data: o.data,
+                data: o.data ? o.data.map(d => d.length > 128 ? d.slice(0, 128) + '...' : d) : o.data,
                 protocol: o.protocol,
                 parsed: o.parsed
               }))
@@ -1167,7 +1167,7 @@ export class StatusServer {
       return
     }
 
-    // GET /address/:addr/history — transaction history for an address (via WoC)
+    // GET /address/:addr/history — local sessions first, WoC fallback
     const addrMatch = path.match(/^\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
     if (req.method === 'GET' && addrMatch) {
       const addr = addrMatch[1]
@@ -1178,11 +1178,30 @@ export class StatusServer {
         return
       }
       try {
-        const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/history', { signal: AbortSignal.timeout(10000) })
-        if (!resp.ok) throw new Error('WoC returned ' + resp.status)
-        const history = await resp.json()
+        // Local sessions from LevelDB (source of truth)
+        const localSessions = await this._store.getSessions(addr, 2000)
+        const seen = new Set(localSessions.map(s => s.txId))
+        const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
+
+        // WoC fallback for older txs + block heights
+        try {
+          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+          if (resp.ok) {
+            const data = await resp.json()
+            const wocHistory = Array.isArray(data) ? data : (data.result || [])
+            for (const entry of wocHistory) {
+              if (seen.has(entry.tx_hash)) {
+                const match = history.find(h => h.tx_hash === entry.tx_hash)
+                if (match && entry.height > 0) match.height = entry.height
+              } else {
+                history.push(entry)
+                seen.add(entry.tx_hash)
+              }
+            }
+          }
+        } catch {} // WoC failure doesn't block response
+
         this._addressCache.set(addr, { data: history, time: Date.now() })
-        // Prune cache if it grows too large
         if (this._addressCache.size > 100) {
           const oldest = this._addressCache.keys().next().value
           this._addressCache.delete(oldest)
@@ -1190,7 +1209,7 @@ export class StatusServer {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ address: addr, history, cached: false }))
       } catch (err) {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Failed to fetch address history: ' + err.message }))
       }
       return
@@ -1463,6 +1482,264 @@ export class StatusServer {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ apps }))
+      return
+    }
+
+    // GET /health — MCP/CLI compatibility
+    if (req.method === 'GET' && path === '/health') {
+      const status = await this.getStatus()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        status: 'ok',
+        headerHeight: status.headers.bestHeight,
+        connectedPeers: status.bsvNode.peers,
+        synced: status.headers.bestHeight > 0
+      }))
+      return
+    }
+
+    // GET /api/address/:addr/unspent — UTXO lookup via GorillaPool ordinals
+    const unspentMatch = path.match(/^\/api\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/unspent$/)
+    if (req.method === 'GET' && unspentMatch) {
+      const addr = unspentMatch[1]
+      try {
+        const resp = await fetch(
+          `https://ordinals.gorillapool.io/api/txos/address/${addr}/unspent`,
+          { signal: AbortSignal.timeout(10000) }
+        )
+        if (!resp.ok) throw new Error(`GorillaPool ${resp.status}`)
+        const data = await resp.json()
+        // Transform GorillaPool format → WoC format
+        const utxos = data.map(u => ({
+          tx_hash: u.txid,
+          tx_pos: u.vout,
+          value: u.satoshis
+        }))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(utxos))
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'UTXO fetch failed: ' + err.message }))
+      }
+      return
+    }
+
+    // GET /api/tx/:txid/hex — raw transaction hex
+    const hexMatch = path.match(/^\/api\/tx\/([0-9a-f]{64})\/hex$/)
+    if (req.method === 'GET' && hexMatch) {
+      const txid = hexMatch[1]
+      let rawHex = null
+      // Mempool first
+      if (this._txRelay && this._txRelay.mempool.has(txid)) {
+        rawHex = this._txRelay.mempool.get(txid)
+      }
+      // P2P second
+      if (!rawHex && this._bsvNodeClient) {
+        try {
+          const result = await this._bsvNodeClient.getTx(txid, 5000)
+          rawHex = result.rawHex
+        } catch {}
+      }
+      // WoC fallback
+      if (!rawHex) {
+        try {
+          const resp = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/hex`)
+          if (resp.ok) rawHex = await resp.text()
+        } catch {}
+      }
+      if (rawHex) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
+        res.end(rawHex)
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'tx not found' }))
+      }
+      return
+    }
+
+    // POST /api/broadcast — MCP/CLI compatibility (accepts { rawTx } key)
+    if (req.method === 'POST' && path === '/api/broadcast') {
+      const body = await this._readBody(req)
+      const rawHex = body.rawTx || body.rawHex
+      if (!rawHex || typeof rawHex !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'rawTx or rawHex required' }))
+        return
+      }
+      if (!/^[0-9a-fA-F]+$/.test(rawHex) || rawHex.length % 2 !== 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid hex string' }))
+        return
+      }
+      const buf = Buffer.from(rawHex, 'hex')
+      const hash = createHash('sha256').update(createHash('sha256').update(buf).digest()).digest()
+      const txid = Buffer.from(hash).reverse().toString('hex')
+      const sent = this._txRelay ? this._txRelay.broadcastTx(txid, rawHex) : 0
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ txid, peers: sent }))
+      return
+    }
+
+    // GET /api/address/:addr/history — local sessions first, WoC fallback (web app compat)
+    const apiHistMatch = path.match(/^\/api\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
+    if (req.method === 'GET' && apiHistMatch) {
+      const addr = apiHistMatch[1]
+      const cached = this._addressCache.get(addr)
+      if (cached && Date.now() - cached.time < 60000) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(cached.data))
+        return
+      }
+      try {
+        // Local sessions from LevelDB (source of truth)
+        const localSessions = await this._store.getSessions(addr, 2000)
+        const seen = new Set(localSessions.map(s => s.txId))
+        const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
+
+        // WoC fallback for older txs + block heights
+        try {
+          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+          if (resp.ok) {
+            const data = await resp.json()
+            const wocHistory = Array.isArray(data) ? data : (data.result || [])
+            for (const entry of wocHistory) {
+              if (seen.has(entry.tx_hash)) {
+                const match = history.find(h => h.tx_hash === entry.tx_hash)
+                if (match && entry.height > 0) match.height = entry.height
+              } else {
+                history.push(entry)
+                seen.add(entry.tx_hash)
+              }
+            }
+          }
+        } catch {} // WoC failure doesn't block response
+
+        this._addressCache.set(addr, { data: history, time: Date.now() })
+        if (this._addressCache.size > 100) {
+          const oldest = this._addressCache.keys().next().value
+          this._addressCache.delete(oldest)
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(history))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Failed to fetch address history: ' + err.message }))
+      }
+      return
+    }
+
+    // GET /api/address/:addr/balance — sum UTXOs from GorillaPool (web app compat)
+    const apiBalMatch = path.match(/^\/api\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/balance$/)
+    if (req.method === 'GET' && apiBalMatch) {
+      const addr = apiBalMatch[1]
+      try {
+        const resp = await fetch(
+          `https://ordinals.gorillapool.io/api/txos/address/${addr}/unspent`,
+          { signal: AbortSignal.timeout(10000) }
+        )
+        if (!resp.ok) throw new Error(`GorillaPool ${resp.status}`)
+        const data = await resp.json()
+        const confirmed = data.reduce((sum, u) => sum + (u.satoshis || 0), 0)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ confirmed, unconfirmed: 0 }))
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Balance fetch failed: ' + err.message }))
+      }
+      return
+    }
+
+    // GET /api/tx/:txid — full tx JSON via WoC (web app compat)
+    const apiTxMatch = path.match(/^\/api\/tx\/([0-9a-f]{64})$/)
+    if (req.method === 'GET' && apiTxMatch) {
+      const txid = apiTxMatch[1]
+      try {
+        const resp = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${txid}`, { signal: AbortSignal.timeout(10000) })
+        if (!resp.ok) throw new Error('WoC returned ' + resp.status)
+        const data = await resp.json()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(data))
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'tx fetch failed: ' + err.message }))
+      }
+      return
+    }
+
+    // GET /api/mesh/status — alias for /status (web app compat)
+    if (req.method === 'GET' && path === '/api/mesh/status') {
+      const status = await this.getStatus({ authenticated })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(status))
+      return
+    }
+
+    // ── Session Storage (Indelible) ─────────────────────────
+
+    // POST /api/sessions/index — MCP/CLI pushes session metadata after broadcast (open, like /api/broadcast)
+    if (req.method === 'POST' && path === '/api/sessions/index') {
+      try {
+        const body = await this._readBody(req)
+        if (!body.txId || !body.address) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'txId and address required' }))
+          return
+        }
+        const record = await this._store.putSession(body)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, txId: record.txId }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // GET /api/sessions/{addr} — read session list for an address
+    if (req.method === 'GET' && path.startsWith('/api/sessions/')) {
+      const addr = path.slice('/api/sessions/'.length)
+      if (!addr) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'address required' }))
+        return
+      }
+      try {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 2000)
+        const sessions = await this._store.getSessions(addr, limit)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ sessions, count: sessions.length }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // POST /api/sessions/backfill — bulk import for migration
+    if (req.method === 'POST' && path === '/api/sessions/backfill') {
+      if (!authenticated) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized. Provide statusSecret via ?auth= or Authorization header.' }))
+        return
+      }
+      try {
+        const body = await this._readBody(req)
+        const sessions = (body.sessions || []).map(s => ({
+          txId: s.txId, address: body.address || s.address,
+          session_id: s.session_id || s.sessionId || null,
+          prev_session_id: s.prev_session_id || s.prevTxId || null,
+          summary: s.summary || '',
+          message_count: s.message_count || s.messageCount || 0,
+          save_type: s.save_type || s.saveType || 'full',
+          timestamp: s.timestamp || null
+        }))
+        const imported = await this._store.putSessionsBatch(sessions)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, imported }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
       return
     }
 

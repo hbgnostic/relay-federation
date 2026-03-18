@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>On-Chain Explorer — No App Required</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .header {
+      text-align: center;
+      padding: 40px 20px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .header .subtitle {
+      font-size: 15px;
+      color: #888;
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+
+    .header .subtitle em {
+      color: #aaa;
+      font-style: normal;
+    }
+
+    /* Connection bar */
+    .connect-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 20px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-wrap: wrap;
+    }
+
+    .connect-bar label {
+      font-size: 13px;
+      color: #888;
+    }
+
+    .connect-bar input {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      width: 300px;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .connect-bar input:focus {
+      outline: none;
+      border-color: rgba(99, 179, 237, 0.4);
+    }
+
+    .connect-bar button {
+      padding: 8px 20px;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: #3b82f6;
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: #2563eb; }
+    .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+    .connect-bar .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #444;
+      transition: background 0.3s;
+    }
+
+    .connect-bar .status-dot.connected { background: #22c55e; }
+    .connect-bar .status-dot.error { background: #ef4444; }
+
+    .connect-info {
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      padding: 0 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .tab {
+      padding: 14px 28px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .tab:hover { color: #aaa; }
+    .tab.active { color: #fff; border-bottom-color: #3b82f6; }
+
+    .tab .count {
+      font-size: 11px;
+      background: rgba(255,255,255,0.08);
+      padding: 2px 7px;
+      border-radius: 10px;
+      margin-left: 6px;
+    }
+
+    /* Main content */
+    .content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 30px 20px;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* TreeChat feed */
+    .post {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: border-color 0.15s;
+    }
+
+    .post:hover { border-color: rgba(255,255,255,0.12); }
+
+    .post-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .post-meta .protocol-badge {
+      background: #166534;
+      color: #4ade80;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.3px;
+    }
+
+    .post-meta .block-badge {
+      background: rgba(99, 179, 237, 0.1);
+      color: #63b3ed;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .post-content {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #d4d4d4;
+      word-break: break-word;
+    }
+
+    .post-txid {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 11px;
+      color: #555;
+      margin-top: 10px;
+    }
+
+    .post-txid a {
+      color: #555;
+      text-decoration: none;
+    }
+
+    .post-txid a:hover { color: #888; }
+
+    .post-pushes {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .push-item {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 11px;
+      color: #666;
+      padding: 2px 0;
+    }
+
+    .push-item .label {
+      color: #888;
+      display: inline-block;
+      width: 70px;
+    }
+
+    /* Inscription gallery */
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .inscription-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+
+    .inscription-card:hover { border-color: rgba(255,255,255,0.12); }
+
+    .inscription-preview {
+      width: 100%;
+      aspect-ratio: 1;
+      background: rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .inscription-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .inscription-preview .placeholder {
+      font-size: 13px;
+      color: #555;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .inscription-info {
+      padding: 14px;
+    }
+
+    .inscription-info .mime {
+      font-size: 12px;
+      color: #888;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .inscription-info .size {
+      font-size: 11px;
+      color: #555;
+      margin-top: 2px;
+    }
+
+    .inscription-info .txid {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 10px;
+      color: #444;
+      margin-top: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* HTML inscription preview */
+    .html-preview-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
+    }
+
+    .preview-btn {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      background: rgba(99, 179, 237, 0.1);
+      color: #63b3ed;
+      border: 1px solid rgba(99, 179, 237, 0.2);
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .preview-btn:hover { background: rgba(99, 179, 237, 0.2); }
+
+    /* Full-screen HTML preview modal */
+    .html-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .html-modal {
+      width: 90vw;
+      height: 85vh;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .html-modal-close {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      font-size: 22px;
+      color: #333;
+      cursor: pointer;
+      z-index: 10;
+      background: rgba(255,255,255,0.8);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+    }
+
+    .html-modal-close:hover { background: #ddd; }
+
+    .html-modal iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    .inscription-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 4px;
+    }
+
+    .badge-html {
+      background: rgba(251, 146, 60, 0.15);
+      color: #fb923c;
+    }
+
+    .badge-3d {
+      background: rgba(168, 85, 247, 0.15);
+      color: #a855f7;
+    }
+
+    .output-count {
+      font-size: 10px;
+      color: #555;
+      margin-top: 2px;
+    }
+
+    /* Status & loading */
+    .status-bar {
+      text-align: center;
+      padding: 16px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    .status-bar.error { color: #ef4444; }
+
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: #555;
+    }
+
+    .loading .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #555;
+    }
+
+    .empty p { margin-bottom: 8px; }
+
+    /* The point */
+    .thesis {
+      text-align: center;
+      padding: 30px 20px;
+      margin-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+      font-size: 13px;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    .thesis strong { color: #888; font-weight: 500; }
+
+    /* Controls row */
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .controls select, .controls input[type="number"] {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .controls label {
+      font-size: 13px;
+      color: #888;
+    }
+
+    .raw-toggle {
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .raw-toggle:hover { color: #888; }
+
+    /* Post type badges */
+    .type-badge {
+      background: rgba(99, 179, 237, 0.1);
+      color: #63b3ed;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .type-badge.reaction {
+      background: rgba(251, 191, 36, 0.1);
+      color: #fbbf24;
+    }
+
+    .sat-amount {
+      background: rgba(245, 158, 11, 0.1);
+      color: #f59e0b;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .author {
+      font-size: 13px;
+      color: #e0e0e0;
+      font-weight: 600;
+    }
+
+    .post-context {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 4px;
+    }
+
+    .post-context a {
+      color: #63b3ed;
+      text-decoration: none;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .post-context a:hover { text-decoration: underline; }
+
+    .post-reaction {
+      border-left: 3px solid rgba(251, 191, 36, 0.3);
+    }
+
+    .type-badge.reply {
+      background: rgba(147, 130, 220, 0.1);
+      color: #9382dc;
+    }
+
+    .post-reply {
+      border-left: 3px solid rgba(147, 130, 220, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>On-Chain Explorer</h1>
+    <p class="subtitle">
+      Reading application data directly from BSV blocks. <em>No app API. No API key. No permission.</em>
+      Just a P2P bridge connected to the Bitcoin network.
+    </p>
+  </div>
+
+  <div class="connect-bar">
+    <span class="status-dot" id="statusDot"></span>
+    <label>Bridge:</label>
+    <input type="text" id="bridgeUrl" value="http://34.122.254.59:9333" placeholder="http://your-bridge:9333">
+    <label>Blocks:</label>
+    <input type="number" id="blockCount" value="5" min="1" max="144" style="width: 70px;">
+    <label>Start at:</label>
+    <input type="number" id="startHeight" value="" placeholder="latest" style="width: 110px;" title="Leave blank to scan from chain tip">
+    <label>Auth:</label>
+    <input type="password" id="authSecret" value="" placeholder="bridge secret (optional)" style="width: 180px;">
+    <button class="btn-primary" id="scanBtn" onclick="startScan()">Scan</button>
+    <span class="connect-info" id="connectInfo"></span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('treechat')">
+      TreeChat <span class="count" id="treechatCount">0</span>
+    </div>
+    <div class="tab" onclick="switchTab('inscriptions')">
+      Inscriptions <span class="count" id="inscriptionCount">0</span>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- TreeChat Panel -->
+    <div class="panel active" id="panel-treechat">
+      <div class="empty" id="treechat-empty">
+        <p>Connect to your bridge and scan blocks to find TreeChat posts.</p>
+        <p>Each post was written to the BSV blockchain — you're reading it via P2P.</p>
+      </div>
+      <div id="treechat-loading" class="loading" style="display:none;">
+        <div class="spinner"></div>
+        <div>Scanning blocks via P2P...</div>
+        <div id="scan-progress" style="margin-top:8px;"></div>
+      </div>
+      <div id="treechat-feed"></div>
+    </div>
+
+    <!-- Inscriptions Panel -->
+    <div class="panel" id="panel-inscriptions">
+      <div class="controls">
+        <div>
+          <label>Filter: </label>
+          <select id="mimeFilter" onchange="renderInscriptions()">
+            <option value="no-bsv20">All (exclude BSV-20 tokens)</option>
+            <option value="">Everything (including BSV-20)</option>
+            <option value="image/png">image/png</option>
+            <option value="image/jpeg">image/jpeg</option>
+            <option value="image/webp">image/webp</option>
+            <option value="image/gif">image/gif</option>
+            <option value="image/svg+xml">image/svg+xml</option>
+            <option value="text/plain">text/plain</option>
+            <option value="text/html">text/html</option>
+            <option value="application/json">application/json</option>
+            <option value="application/bsv-20">BSV-20 tokens only</option>
+          </select>
+        </div>
+      </div>
+      <div class="empty" id="inscriptions-empty">
+        <p>Hit Scan to find inscriptions in recent blocks via P2P.</p>
+        <p>Images, text, HTML — all stored permanently in BSV transactions.</p>
+      </div>
+      <div id="inscriptions-loading" class="loading" style="display:none;">
+        <div class="spinner"></div>
+        <div>Scanning blocks for inscriptions...</div>
+      </div>
+      <div class="gallery" id="inscriptions-gallery"></div>
+    </div>
+
+  </div>
+
+  <div class="thesis">
+    <strong>The point:</strong> TreeChat is an app. But the data isn't trapped inside TreeChat.<br>
+    Inscriptions are minted through wallets. But they don't live in the wallet.<br>
+    Everything here was read from <strong>BSV blocks via P2P</strong> — the underlying record can never be held hostage.
+  </div>
+
+<script>
+  // --- State ---
+  let bridgeUrl = ''
+  let showRawData = false
+  let treechatPosts = []
+  let inscriptions = []
+
+  // --- Hex decode ---
+  function hexToUtf8 (hex) {
+    if (!hex) return ''
+    try {
+      const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)))
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+    } catch { return hex }
+  }
+
+  function isPrintable (str) {
+    return str.length > 1 && /^[\x20-\x7E\n\r\t\u00A0-\uFFFF]+$/.test(str)
+  }
+
+  const TREECHAT_MARKER = '7472656563686174'
+
+  // Known BSV protocol prefix addresses (as hex-encoded UTF-8)
+  const B_PREFIX_HEX = '31394878696756345179427633744870515663554551797131707a5a56646f417574'
+  const MAP_PREFIX_HEX = '3150755161374b36324d694b43747373534c4b79316b683536575755374d74555235'
+  const AIP_PREFIX_HEX = '313550636948473232534e4c514a584d6f5355615756693757537163376843467661'
+
+  // Pipe separator used between protocol sections in bSocial OP_RETURNs
+  const PIPE_HEX = '7c' // "|"
+
+  // Known protocol prefixes (as hex)
+  const PROTOCOL_PREFIXES = new Set([B_PREFIX_HEX, MAP_PREFIX_HEX, AIP_PREFIX_HEX])
+
+  // Parse bSocial multi-protocol structure from OP_RETURN outputs
+  // Format: B:// fields | MAP fields | AIP fields (pipe-separated in one output)
+  function parseBSocial (opReturns) {
+    let content = null
+    let contentType = null
+    let contentEncoding = null
+    let mapData = {}
+    let author = null
+    let username = null
+    let postType = 'post'
+    let emoji = null
+    let contextTxid = null
+    let satAmount = null
+    let timestamp = null
+    let signingAddress = null
+    let threadId = null
+    let msgId = null
+
+    for (const output of opReturns) {
+      const pushes = output.data
+      let i = 0
+
+      while (i < pushes.length) {
+        const pushHex = pushes[i]
+
+        // Skip pipe separators between protocol sections
+        if (pushHex === PIPE_HEX) {
+          i++
+          continue
+        }
+
+        const pushText = hexToUtf8(pushHex)
+
+        // --- B:// protocol ---
+        // Format: B_PREFIX | data | mediaType | encoding | [filename]
+        if (pushHex === B_PREFIX_HEX || pushText === '19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut') {
+          i++ // skip prefix
+          // Read fields until we hit a pipe, another protocol prefix, or end
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
+            content = hexToUtf8(pushes[i])
+            i++
+          }
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
+            contentType = hexToUtf8(pushes[i])
+            i++
+          }
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
+            contentEncoding = hexToUtf8(pushes[i])
+            i++
+          }
+          continue
+        }
+
+        // --- MAP protocol ---
+        // Format: MAP_PREFIX | SET | key | value | key | value | ...
+        if (pushHex === MAP_PREFIX_HEX || pushText === '1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5') {
+          i++ // skip prefix
+          // Skip the action (SET, ADD, DELETE)
+          if (i < pushes.length) i++
+
+          // Read key-value pairs until pipe or protocol prefix
+          while (i + 1 < pushes.length) {
+            // Stop at pipe separator or next protocol prefix
+            if (pushes[i] === PIPE_HEX || PROTOCOL_PREFIXES.has(pushes[i])) break
+
+            const key = hexToUtf8(pushes[i])
+            const val = hexToUtf8(pushes[i + 1] || '')
+
+            if (!key) { i++; continue }
+
+            mapData[key] = val
+
+            // Extract well-known fields
+            if (key === 'type') postType = val
+            if (key === 'emoji') emoji = val
+            if (key === 'tx') contextTxid = val
+            if (key === 'satoshis' || key === 'amount' || key === 'sats') satAmount = val
+            if (key === 'paymail' || key === 'author') author = val
+            if (key === 'username') username = val
+            if (key === 'treechat_created_at') timestamp = val
+            if (key === 'treechat_thread_id') threadId = val
+            if (key === 'treechat_msg_id') msgId = val
+
+            i += 2
+          }
+          continue
+        }
+
+        // --- AIP protocol ---
+        // Format: AIP_PREFIX | algorithm | signingAddress | signature
+        if (pushHex === AIP_PREFIX_HEX || pushText === '15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva') {
+          i++ // skip prefix
+          // algorithm
+          if (i < pushes.length && pushes[i] !== PIPE_HEX) i++
+          // signing address
+          if (i < pushes.length && pushes[i] !== PIPE_HEX) {
+            signingAddress = hexToUtf8(pushes[i])
+            i++
+          }
+          // signature (skip)
+          if (i < pushes.length && pushes[i] !== PIPE_HEX) i++
+          continue
+        }
+
+        i++
+      }
+    }
+
+    // Use username as display name, fall back to author/paymail, then signing address
+    const displayName = username || author || signingAddress || null
+
+    return {
+      content,
+      contentType,
+      contentEncoding,
+      mapData,
+      postType,
+      emoji,
+      contextTxid,
+      satAmount,
+      author: displayName,
+      username,
+      signingAddress,
+      timestamp,
+      threadId,
+      msgId
+    }
+  }
+
+  // --- Tab switching ---
+  function switchTab (tab) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', (i === 0 && tab === 'treechat') || (i === 1 && tab === 'inscriptions'))
+    })
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'))
+    document.getElementById('panel-' + tab).classList.add('active')
+  }
+
+  // --- Auth headers ---
+  function getHeaders () {
+    const secret = document.getElementById('authSecret').value
+    const h = { 'Content-Type': 'application/json' }
+    if (secret) h['Authorization'] = 'Bearer ' + secret
+    return h
+  }
+
+  // --- Bridge connection ---
+  async function checkBridge (url) {
+    try {
+      const res = await fetch(url + '/status', { headers: getHeaders() })
+      if (!res.ok) throw new Error(res.status)
+      return await res.json()
+    } catch (err) {
+      throw new Error('Cannot reach bridge: ' + err.message)
+    }
+  }
+
+  // --- TreeChat scanning ---
+  async function startScan () {
+    bridgeUrl = document.getElementById('bridgeUrl').value.replace(/\/$/, '')
+    const blockCount = parseInt(document.getElementById('blockCount').value) || 5
+    const btn = document.getElementById('scanBtn')
+    const dot = document.getElementById('statusDot')
+    const info = document.getElementById('connectInfo')
+
+    btn.disabled = true
+    btn.textContent = 'Scanning...'
+    dot.className = 'status-dot'
+    info.textContent = 'Connecting...'
+
+    try {
+      // Check bridge
+      const status = await checkBridge(bridgeUrl)
+      dot.className = 'status-dot connected'
+      const tipHeight = status.headers.bestHeight
+      const customStart = parseInt(document.getElementById('startHeight').value)
+      const scanFrom = (customStart > 0 && customStart <= tipHeight) ? customStart : tipHeight
+      info.textContent = `Height: ${tipHeight} | Peers: ${status.peers.connected}${customStart ? ' | Scanning from ' + scanFrom : ''}`
+
+      // Show loading for both panels
+      document.getElementById('treechat-empty').style.display = 'none'
+      document.getElementById('treechat-loading').style.display = 'block'
+      document.getElementById('treechat-feed').innerHTML = ''
+      document.getElementById('inscriptions-empty').style.display = 'none'
+      document.getElementById('inscriptions-gallery').innerHTML = ''
+      treechatPosts = []
+      inscriptions = []
+
+      // Scan blocks — one pass collects BOTH TreeChat posts and inscriptions
+      for (let i = 0; i < blockCount; i++) {
+        const h = scanFrom - i
+        document.getElementById('scan-progress').textContent =
+          `Block ${h} (${i + 1}/${blockCount})...`
+
+        try {
+          const res = await fetch(`${bridgeUrl}/block/${h}/transactions`, { headers: getHeaders() })
+          if (!res.ok) {
+            document.getElementById('scan-progress').textContent =
+              `Block ${h} (${i + 1}/${blockCount})... HTTP ${res.status} ${res.statusText}`
+            continue
+          }
+          const block = await res.json()
+
+          for (const tx of block.transactions) {
+            if (!tx.outputs) continue
+
+            // --- TreeChat detection ---
+            const hasTreeChat = tx.outputs.some(o =>
+              o.type === 'op_return' && o.data && o.data.some(p => p === TREECHAT_MARKER)
+            )
+            if (hasTreeChat) {
+              const opReturns = tx.outputs.filter(o => o.type === 'op_return' && o.data)
+              const parsed = parseBSocial(opReturns)
+              treechatPosts.push({
+                txid: tx.txid,
+                blockHeight: h,
+                ...parsed,
+                rawOutputs: opReturns
+              })
+            }
+
+            // --- Inscription detection ---
+            const outputCount = tx.outputs.length
+            // Collect companion OP_RETURN metadata from the same tx
+            const companionMeta = tx.outputs
+              .filter(o => o.type === 'op_return' && o.data)
+              .map(o => o.data.map(hexToUtf8).join(' '))
+              .join(' ')
+
+            for (const output of tx.outputs) {
+              if (output.type === 'ordinal' && output.parsed) {
+                inscriptions.push({
+                  txid: tx.txid,
+                  vout: output.vout,
+                  blockHeight: h,
+                  contentType: output.parsed.contentType || null,
+                  content: output.parsed.content || null,
+                  isBsv20: output.parsed.isBsv20 || false,
+                  bsv20: output.parsed.bsv20 || null,
+                  outputCount,
+                  companionMeta
+                })
+              }
+            }
+          }
+        } catch (blockErr) {
+            document.getElementById('scan-progress').textContent =
+              `Block ${h} (${i + 1}/${blockCount})... Error: ${blockErr.message}`
+          }
+      }
+
+      // Render both tabs
+      document.getElementById('treechat-loading').style.display = 'none'
+      document.getElementById('treechatCount').textContent = treechatPosts.length
+      document.getElementById('inscriptionCount').textContent = inscriptions.length
+      renderTreeChat()
+      renderInscriptions()
+
+    } catch (err) {
+      dot.className = 'status-dot error'
+      info.textContent = err.message
+      document.getElementById('treechat-loading').style.display = 'none'
+      document.getElementById('treechat-empty').style.display = 'block'
+      document.getElementById('treechat-empty').innerHTML =
+        `<p style="color:#ef4444;">${err.message}</p><p>Check your bridge URL and try again.</p>`
+    } finally {
+      btn.disabled = false
+      btn.textContent = 'Scan'
+    }
+  }
+
+  function renderTreeChat () {
+    const feed = document.getElementById('treechat-feed')
+
+    if (treechatPosts.length === 0) {
+      feed.innerHTML = `
+        <div class="empty">
+          <p>No TreeChat posts found in these blocks.</p>
+          <p>Try scanning more blocks — TreeChat activity varies.</p>
+          <p style="margin-top:16px; color:#444;">
+            The scan checked every transaction in every block via P2P.<br>
+            No TreeChat server was contacted.
+          </p>
+        </div>`
+      return
+    }
+
+    feed.innerHTML = treechatPosts.map(post => {
+      // Determine what kind of activity this is
+      const type = post.postType || 'post'
+      const isReaction = ['like', 'upvote', 'vote', 'tip', 'boost', 'repost'].includes(type.toLowerCase())
+      const isPost = type.toLowerCase() === 'post'
+      const isReply = isPost && post.contextTxid  // a "post" with a context tx is actually a reply
+      const isTopLevel = isPost && !post.contextTxid
+
+      // Friendly label for the action
+      const actionLabels = {
+        'like': 'upvoted',
+        'upvote': 'upvoted',
+        'boost': 'boosted',
+        'tip': 'tipped',
+        'repost': 'reposted',
+        'reply': 'replied',
+        'comment': 'commented',
+        'post': isReply ? 'replied' : 'posted'
+      }
+      const actionLabel = actionLabels[type.toLowerCase()] || type
+
+      // Type badge styling
+      const typeBadge = isReaction
+        ? `<span class="type-badge reaction">${post.emoji || '👍'} ${escapeHtml(actionLabel)}</span>`
+        : isReply
+          ? `<span class="type-badge reply">${escapeHtml(actionLabel)}</span>`
+          : `<span class="type-badge">${escapeHtml(actionLabel)}</span>`
+
+      // Sat amount for upvotes/tips
+      const satInfo = post.satAmount
+        ? `<span class="sat-amount">${Number(post.satAmount).toLocaleString()} sats</span>`
+        : ''
+
+      // Author — show username prominently
+      const authorInfo = post.author
+        ? `<span class="author">${escapeHtml(post.author)}</span>`
+        : ''
+
+      // Timestamp — use treechat_created_at if available
+      let timeInfo = ''
+      if (post.timestamp) {
+        try {
+          const d = new Date(post.timestamp)
+          timeInfo = `<span style="font-size:11px; color:#555;">${d.toLocaleString()}</span>`
+        } catch { }
+      }
+
+      // Main content
+      const mainContent = post.content || ''
+      const contentHtml = mainContent
+        ? `<div class="post-content">${escapeHtml(mainContent)}</div>`
+        : ''
+
+      // Context (replying to / reacting to another tx)
+      let contextHtml = ''
+      if (post.contextTxid) {
+        const verb = isReaction ? `${post.emoji || '👍'} ${actionLabel}` : '↩ replied to'
+        contextHtml = `<div class="post-context">${verb} <a href="https://whatsonchain.com/tx/${post.contextTxid}" target="_blank" rel="noopener">${post.contextTxid.slice(0, 16)}...</a></div>`
+      }
+
+      // MAP metadata (show all decoded key-value pairs)
+      const mapEntries = Object.entries(post.mapData || {})
+      const mapHtml = mapEntries.length > 0
+        ? mapEntries.map(([k, v]) => `
+            <div class="push-item">
+              <span class="label">${escapeHtml(k)}</span>
+              ${escapeHtml(v)}
+            </div>`).join('')
+        : ''
+
+      // Raw push data
+      const rawHtml = (post.rawOutputs || []).map((output, oi) =>
+        (output.data || []).map((hex, pi) => {
+          const text = hexToUtf8(hex)
+          const display = isPrintable(text) ? escapeHtml(text) : hex.slice(0, 60) + (hex.length > 60 ? '...' : '')
+          return `<div class="push-item"><span class="label">out${oi}[${pi}]</span> ${display}</div>`
+        }).join('')
+      ).join('')
+
+      return `
+        <div class="post ${isReaction ? 'post-reaction' : ''} ${isReply ? 'post-reply' : ''}">
+          <div class="post-meta">
+            ${authorInfo}
+            ${typeBadge}
+            ${satInfo}
+            <span class="block-badge">Block ${post.blockHeight}</span>
+            ${timeInfo}
+          </div>
+          ${contentHtml}
+          ${contextHtml}
+          <div class="post-txid">
+            tx: <a href="https://whatsonchain.com/tx/${post.txid}" target="_blank" rel="noopener">${post.txid}</a>
+          </div>
+          <div class="post-pushes">
+            <span class="raw-toggle" onclick="toggleRaw(this)">
+              [show decoded fields]
+            </span>
+            <div class="raw-data" style="display:none; margin-top:8px;">
+              <div style="margin-bottom:8px; color:#666; font-size:11px;">MAP metadata:</div>
+              ${mapHtml || '<div class="push-item"><span class="label">—</span> no MAP fields decoded</div>'}
+              <div style="margin:12px 0 8px; color:#666; font-size:11px;">Raw push data:</div>
+              ${rawHtml}
+            </div>
+          </div>
+        </div>`
+    }).join('')
+  }
+
+  function toggleRaw (el) {
+    const raw = el.parentElement.querySelector('.raw-data')
+    const showing = raw.style.display !== 'none'
+    raw.style.display = showing ? 'none' : 'block'
+    el.textContent = showing ? '[show decoded fields]' : '[hide decoded fields]'
+  }
+
+  // --- Inscriptions (scanned from blocks via P2P, same as TreeChat) ---
+  function renderInscriptions () {
+    const gallery = document.getElementById('inscriptions-gallery')
+    const empty = document.getElementById('inscriptions-empty')
+    const mime = document.getElementById('mimeFilter').value
+
+    // Apply MIME filter client-side
+    let filtered
+    if (mime === 'no-bsv20') {
+      filtered = inscriptions.filter(i => !i.isBsv20)
+    } else if (mime) {
+      filtered = inscriptions.filter(i => i.contentType === mime)
+    } else {
+      filtered = inscriptions
+    }
+
+    if (filtered.length === 0) {
+      empty.style.display = 'block'
+      empty.innerHTML = inscriptions.length === 0
+        ? '<p>No inscriptions found in these blocks. Try scanning more blocks.</p>'
+        : '<p>No inscriptions match this filter. Try a different type.</p>'
+      gallery.innerHTML = ''
+      return
+    }
+
+    empty.style.display = 'none'
+
+    gallery.innerHTML = filtered.map((insc, idx) => {
+      const isImage = insc.contentType && insc.contentType.startsWith('image/')
+      const declaredText = insc.contentType && insc.contentType.startsWith('text/')
+      const declaredHtml = insc.contentType && insc.contentType.split(';')[0].trim() === 'text/html'
+      const contentBytes = insc.content ? insc.content.length / 2 : 0
+      const sizeStr = contentBytes > 1024
+        ? (contentBytes / 1024).toFixed(1) + ' KB'
+        : contentBytes + ' B'
+
+      // Detect actual HTML content even if MIME says text/plain
+      let textContent = ''
+      let looksLikeHtml = declaredHtml
+      if (insc.content && (declaredText || !isImage)) {
+        textContent = hexToUtf8(insc.content)
+        if (!looksLikeHtml) {
+          const trimmed = textContent.trimStart().toLowerCase()
+          looksLikeHtml = trimmed.startsWith('<!doctype') ||
+                          trimmed.startsWith('<html') ||
+                          trimmed.startsWith('<svg') ||
+                          (trimmed.startsWith('<head') && trimmed.includes('<body')) ||
+                          (trimmed.includes('<canvas') && trimmed.includes('<script'))
+        }
+      }
+
+      // Detect 3DOrdi or other collection tags from companion OP_RETURN
+      const meta = insc.companionMeta || ''
+      const is3DOrdi = meta.toLowerCase().includes('3dordi') ||
+                       textContent.toLowerCase().includes('3dordi')
+
+      let preview = ''
+      if (isImage && insc.content) {
+        const bytes = new Uint8Array(insc.content.match(/.{1,2}/g).map(b => parseInt(b, 16)))
+        const blob = new Blob([bytes], { type: insc.contentType })
+        const url = URL.createObjectURL(blob)
+        preview = `<img src="${url}" loading="lazy" alt="inscription">`
+      } else if (looksLikeHtml && insc.content) {
+        // HTML inscription — render a sandboxed thumbnail iframe
+        preview = `<iframe class="html-preview-frame" sandbox="allow-scripts" srcdoc="${escapeAttr(textContent)}" loading="lazy" scrolling="no"></iframe>`
+      } else if (declaredText && insc.content) {
+        preview = `<div class="placeholder" style="text-align:left; font-size:11px; white-space:pre-wrap; overflow:hidden;">${escapeHtml(textContent.slice(0, 300))}</div>`
+      } else if (insc.isBsv20 && insc.bsv20) {
+        const op = insc.bsv20
+        preview = `<div class="placeholder" style="color:#fbbf24;">BSV-20<br><strong>${escapeHtml(op.op || '')} ${escapeHtml(op.tick || op.id || '')}</strong><br>${op.amt ? op.amt + ' tokens' : ''}</div>`
+      } else {
+        preview = `<div class="placeholder">${insc.contentType || 'unknown'}<br>${sizeStr}</div>`
+      }
+
+      // Badges
+      const mimeMismatch = looksLikeHtml && !declaredHtml
+        ? `<span class="inscription-badge badge-html">HTML detected</span>` : ''
+      const threeDOrdiBadge = is3DOrdi
+        ? `<span class="inscription-badge badge-3d">3DOrdi</span>` : ''
+
+      // Preview button for HTML inscriptions
+      const previewBtn = looksLikeHtml
+        ? `<button class="preview-btn" onclick="openHtmlPreview(${idx})">Open full preview</button>` : ''
+
+      // Multi-output info
+      const outputInfo = insc.outputCount > 2
+        ? `<div class="output-count">${insc.outputCount} outputs (inscription + metadata)</div>` : ''
+
+      return `
+        <div class="inscription-card" data-idx="${idx}">
+          <div class="inscription-preview">${preview}</div>
+          <div class="inscription-info">
+            <div class="mime">${insc.contentType || 'unknown'}${mimeMismatch}${threeDOrdiBadge}</div>
+            <div class="size">${sizeStr}${insc.isBsv20 ? ' — BSV-20 token op' : ''}</div>
+            ${outputInfo}
+            ${previewBtn}
+            <div class="txid" title="${insc.txid}">
+              <a href="https://whatsonchain.com/tx/${insc.txid}" target="_blank" rel="noopener" style="color:#444;text-decoration:none;">${insc.txid}</a>
+            </div>
+            <div style="font-size:10px; color:#444; margin-top:2px;">Block ${insc.blockHeight} — output ${insc.vout}</div>
+          </div>
+        </div>`
+    }).join('')
+  }
+
+  // --- Utils ---
+  function escapeHtml (str) {
+    const div = document.createElement('div')
+    div.textContent = str
+    return div.innerHTML
+  }
+
+  function escapeAttr (str) {
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
+  // Open HTML inscription in a full-screen sandboxed modal
+  function openHtmlPreview (idx) {
+    // Get the current filtered list based on active filter
+    const mime = document.getElementById('mimeFilter').value
+    let filtered
+    if (mime === 'no-bsv20') {
+      filtered = inscriptions.filter(i => !i.isBsv20)
+    } else if (mime) {
+      filtered = inscriptions.filter(i => i.contentType === mime)
+    } else {
+      filtered = inscriptions
+    }
+
+    const insc = filtered[idx]
+    if (!insc || !insc.content) return
+
+    const htmlContent = hexToUtf8(insc.content)
+
+    const overlay = document.createElement('div')
+    overlay.className = 'html-modal-overlay'
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+
+    const modal = document.createElement('div')
+    modal.className = 'html-modal'
+
+    const closeBtn = document.createElement('button')
+    closeBtn.className = 'html-modal-close'
+    closeBtn.textContent = '✕'
+    closeBtn.onclick = () => overlay.remove()
+
+    const iframe = document.createElement('iframe')
+    iframe.sandbox = 'allow-scripts'
+    iframe.srcdoc = htmlContent
+
+    modal.appendChild(closeBtn)
+    modal.appendChild(iframe)
+    overlay.appendChild(modal)
+    document.body.appendChild(overlay)
+
+    // Close on Escape
+    const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey) } }
+    document.addEventListener('keydown', onKey)
+  }
+</script>
+
+</body>
+</html>
