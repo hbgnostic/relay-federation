@@ -48,6 +48,8 @@ export class BSVNodeClient extends EventEmitter {
    * @param {{ height, hash, prevHash }} [opts.checkpoint] — Starting checkpoint
    * @param {number} [opts.syncIntervalMs] — Header sync interval (default 30s)
    * @param {number} [opts.pingIntervalMs] — Keepalive interval (default 120s)
+   * @param {number} [opts.maxRetries] — Max retry attempts for block/tx fetch (default 3)
+   * @param {number} [opts.retryTimeoutMs] — Timeout per retry attempt (default 20s)
    */
   constructor (opts = {}) {
     super()
@@ -56,11 +58,16 @@ export class BSVNodeClient extends EventEmitter {
     this._checkpoint = opts.checkpoint || DEFAULT_CHECKPOINT
     this._syncIntervalMs = opts.syncIntervalMs || 30000
     this._pingIntervalMs = opts.pingIntervalMs || 120000
+    this._maxRetries = opts.maxRetries || 3
+    this._retryTimeoutMs = opts.retryTimeoutMs || 20000
 
     /** @type {Map<string, BSVPeer>} host → peer */
     this._peers = new Map()
     this._destroyed = false
     this._maintainTimer = null
+
+    // Round-robin peer selection index
+    this._peerIndex = 0
 
     // Track best height across all peers
     this._bestHeight = this._checkpoint.height
@@ -121,33 +128,80 @@ export class BSVNodeClient extends EventEmitter {
   }
 
   /**
-   * Fetch a transaction from the first available peer.
+   * Fetch a transaction with retry logic and load distribution.
+   * Tries multiple peers in round-robin order if initial attempts fail.
    * @param {string} txid
-   * @param {number} [timeoutMs=10000]
+   * @param {number} [timeoutMs=10000] — Timeout per attempt
    * @returns {Promise<{ txid, rawHex }>}
    */
-  getTx (txid, timeoutMs = 10000) {
-    for (const peer of this._peers.values()) {
-      if (peer._handshakeComplete) {
-        return peer.getTx(txid, timeoutMs)
+  async getTx (txid, timeoutMs = 10000) {
+    const peers = this._getConnectedPeers()
+    if (peers.length === 0) {
+      return Promise.reject(new Error('not connected to BSV node'))
+    }
+
+    const maxAttempts = Math.min(this._maxRetries, peers.length)
+    const errors = []
+
+    // Advance round-robin index for load distribution
+    this._peerIndex = (this._peerIndex + 1) % peers.length
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const peer = this._getPeerAtOffset(attempt)
+      if (!peer) continue
+
+      try {
+        const result = await peer.getTx(txid, timeoutMs)
+        return result
+      } catch (err) {
+        errors.push(`${peer.host}: ${err.message}`)
+        // Continue to next peer
       }
     }
-    return Promise.reject(new Error('not connected to BSV node'))
+
+    // All attempts failed
+    return Promise.reject(new Error(
+      `failed to fetch tx ${txid.slice(0, 16)}... after ${maxAttempts} attempts: ${errors.join('; ')}`
+    ))
   }
 
   /**
-   * Fetch a full block from the first available peer.
+   * Fetch a full block with retry logic and load distribution.
+   * Tries multiple peers in round-robin order if initial attempts fail.
    * @param {string} blockHash
-   * @param {number} [timeoutMs=60000]
+   * @param {number} [timeoutMs] — Total timeout (default: retryTimeoutMs * maxRetries)
    * @returns {Promise<{ blockHash, header, transactions: Array<{ txid, rawHex }> }>}
    */
-  getBlock (blockHash, timeoutMs = 60000) {
-    for (const peer of this._peers.values()) {
-      if (peer._handshakeComplete) {
-        return peer.getBlock(blockHash, timeoutMs)
+  async getBlock (blockHash, timeoutMs) {
+    const peers = this._getConnectedPeers()
+    if (peers.length === 0) {
+      return Promise.reject(new Error('not connected to BSV node'))
+    }
+
+    const maxAttempts = Math.min(this._maxRetries, peers.length)
+    const perAttemptTimeout = this._retryTimeoutMs
+    const errors = []
+
+    // Advance round-robin index for load distribution
+    this._peerIndex = (this._peerIndex + 1) % peers.length
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const peer = this._getPeerAtOffset(attempt)
+      if (!peer) continue
+
+      try {
+        const result = await peer.getBlock(blockHash, perAttemptTimeout)
+        return result
+      } catch (err) {
+        errors.push(`${peer.host}: ${err.message}`)
+        // Continue to next peer
       }
     }
-    return Promise.reject(new Error('not connected to BSV node'))
+
+    // All attempts failed
+    return Promise.reject(new Error(
+      `failed to fetch block ${blockHash.slice(0, 16)}... after ${maxAttempts} attempts: ${errors.join('; ')}`
+    ))
   }
 
   /**
@@ -181,6 +235,44 @@ export class BSVNodeClient extends EventEmitter {
   get bestHeight () { return this._bestHeight }
   /** Best synced hash */
   get bestHash () { return this._bestHash }
+
+  /**
+   * Get connected peers with completed handshake as an array.
+   * @returns {BSVPeer[]}
+   */
+  _getConnectedPeers () {
+    const peers = []
+    for (const peer of this._peers.values()) {
+      if (peer._handshakeComplete) {
+        peers.push(peer)
+      }
+    }
+    return peers
+  }
+
+  /**
+   * Get the next peer in round-robin order.
+   * Distributes load across all connected peers.
+   * @returns {BSVPeer|null}
+   */
+  _getNextPeer () {
+    const peers = this._getConnectedPeers()
+    if (peers.length === 0) return null
+    this._peerIndex = (this._peerIndex + 1) % peers.length
+    return peers[this._peerIndex]
+  }
+
+  /**
+   * Get a peer at a specific offset from current index (for retries).
+   * @param {number} offset
+   * @returns {BSVPeer|null}
+   */
+  _getPeerAtOffset (offset) {
+    const peers = this._getConnectedPeers()
+    if (peers.length === 0) return null
+    const idx = (this._peerIndex + offset) % peers.length
+    return peers[idx]
+  }
 
   /** Number of peers with completed handshake */
   get connectedCount () {
