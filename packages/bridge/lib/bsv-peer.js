@@ -126,7 +126,10 @@ export class BSVPeer extends EventEmitter {
     this._pingIntervalMs = opts.pingIntervalMs || 120000
 
     this._socket = null
-    this._buffer = Buffer.alloc(0)
+    // Efficient buffering for large messages (avoid O(n²) concat on every chunk)
+    this._chunks = []        // list of received chunks
+    this._chunksLen = 0      // total bytes across all chunks
+    this._buffer = null      // consolidated buffer (created lazily)
     this._connected = false
     this._handshakeComplete = false
     this._destroyed = false
@@ -378,36 +381,119 @@ export class BSVPeer extends EventEmitter {
   // ── Private: data parsing ──────────────────────────────────
 
   _onData (data) {
-    this._buffer = Buffer.concat([this._buffer, data])
+    // Efficient buffering: collect chunks in list, only concat when we have a complete message
+    // This is O(n) instead of O(n²) for large blocks
+    this._chunks.push(data)
+    this._chunksLen += data.length
 
-    while (this._buffer.length >= MSG_HEADER_SIZE) {
-      const magicIdx = this._findMagic()
-      if (magicIdx < 0) {
-        this._buffer = Buffer.alloc(0)
-        return
-      }
-      if (magicIdx > 0) {
+    this._processBuffer()
+  }
+
+  // Peek at bytes across chunks without consolidating (for reading header)
+  _peekBytes (offset, length) {
+    if (offset + length > this._chunksLen) return null
+
+    // Fast path: if all needed bytes are in first chunk
+    if (this._chunks.length === 1 || offset + length <= this._chunks[0].length) {
+      return this._chunks[0].subarray(offset, offset + length)
+    }
+
+    // Slow path: gather bytes across chunks (only for small reads like header)
+    const result = Buffer.allocUnsafe(length)
+    let remaining = length
+    let resultOffset = 0
+    let chunkIdx = 0
+    let chunkOffset = offset
+
+    // Skip to the right starting chunk
+    while (chunkOffset >= this._chunks[chunkIdx].length) {
+      chunkOffset -= this._chunks[chunkIdx].length
+      chunkIdx++
+    }
+
+    while (remaining > 0) {
+      const chunk = this._chunks[chunkIdx]
+      const available = chunk.length - chunkOffset
+      const toCopy = Math.min(remaining, available)
+      chunk.copy(result, resultOffset, chunkOffset, chunkOffset + toCopy)
+      resultOffset += toCopy
+      remaining -= toCopy
+      chunkIdx++
+      chunkOffset = 0
+    }
+
+    return result
+  }
+
+  _consolidateAndConsume (totalLen) {
+    // Consolidate all chunks into one buffer
+    if (this._chunks.length > 1) {
+      this._buffer = Buffer.concat(this._chunks, this._chunksLen)
+    } else {
+      this._buffer = this._chunks[0] || Buffer.alloc(0)
+    }
+
+    // Extract the message
+    const message = this._buffer.subarray(0, totalLen)
+
+    // Keep remainder for next message
+    const remainder = this._buffer.subarray(totalLen)
+    this._chunks = remainder.length > 0 ? [remainder] : []
+    this._chunksLen = remainder.length
+    this._buffer = null
+
+    return message
+  }
+
+  _processBuffer () {
+    while (this._chunksLen >= MSG_HEADER_SIZE) {
+      // Peek at header without consolidating
+      const header = this._peekBytes(0, MSG_HEADER_SIZE)
+      if (!header) return
+
+      // Check magic bytes
+      if (header[0] !== MAGIC[0] || header[1] !== MAGIC[1] ||
+          header[2] !== MAGIC[2] || header[3] !== MAGIC[3]) {
+        // Bad magic - need to consolidate to find valid magic
+        if (this._chunks.length > 1) {
+          this._buffer = Buffer.concat(this._chunks, this._chunksLen)
+          this._chunks = [this._buffer]
+        } else {
+          this._buffer = this._chunks[0]
+        }
+        const magicIdx = this._findMagic()
+        if (magicIdx < 0) {
+          this._chunks = []
+          this._chunksLen = 0
+          return
+        }
         this._buffer = this._buffer.subarray(magicIdx)
-      }
-
-      if (this._buffer.length < MSG_HEADER_SIZE) return
-
-      const command = this._buffer.subarray(4, 16).toString('ascii').replace(/\0/g, '')
-      const payloadLen = this._buffer.readUInt32LE(16)
-      const checksum = this._buffer.subarray(20, 24)
-
-      const totalLen = MSG_HEADER_SIZE + payloadLen
-      if (this._buffer.length < totalLen) return
-
-      const payload = this._buffer.subarray(MSG_HEADER_SIZE, totalLen)
-
-      const computed = sha256d(payload).subarray(0, 4)
-      if (!computed.equals(checksum)) {
-        this._buffer = this._buffer.subarray(4)
+        this._chunks = [this._buffer]
+        this._chunksLen = this._buffer.length
         continue
       }
 
-      this._buffer = this._buffer.subarray(totalLen)
+      const command = header.subarray(4, 16).toString('ascii').replace(/\0/g, '')
+      const payloadLen = header.readUInt32LE(16)
+      const checksum = header.subarray(20, 24)
+
+      const totalLen = MSG_HEADER_SIZE + payloadLen
+
+      // Wait for complete message before consolidating (the key optimization!)
+      if (this._chunksLen < totalLen) return
+
+      // NOW consolidate - we have the complete message
+      const fullMessage = this._consolidateAndConsume(totalLen)
+      const payload = fullMessage.subarray(MSG_HEADER_SIZE)
+
+      // Verify checksum
+      const computed = sha256d(payload).subarray(0, 4)
+      if (!computed.equals(checksum)) {
+        // Bad checksum - skip 4 bytes and retry
+        this._chunks = [fullMessage.subarray(4)]
+        this._chunksLen = fullMessage.length - 4
+        continue
+      }
 
       try {
         this._handleMessage(command, payload)

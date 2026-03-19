@@ -932,17 +932,38 @@ export class StatusServer {
           return
         }
 
-        // Fetch full block via P2P (uses retry logic with multiple peers)
-        const block = await this._bsvNodeClient.getBlock(blockHash, 60000)
-
-        // Stream as NDJSON - one JSON object per line for memory efficiency
-        // This allows GC to collect each transaction after it's written
+        // Send headers immediately to prevent Node.js headersTimeout (60s default)
+        // This allows long-running block fetches without the connection being killed
         res.writeHead(200, {
           'Content-Type': 'application/x-ndjson',
           'Transfer-Encoding': 'chunked'
         })
 
-        // First line: block header/metadata
+        // Write a status line so the client knows fetching is in progress
+        res.write(JSON.stringify({
+          type: 'status',
+          message: 'Fetching block from P2P network...',
+          height,
+          hash: blockHash
+        }) + '\n')
+
+        // Fetch full block via P2P (uses retry logic with multiple peers)
+        // This can take several minutes for large blocks (200MB+)
+        console.log(`Block ${height}: starting P2P fetch...`)
+        const block = await this._bsvNodeClient.getBlock(blockHash, 60000)
+        console.log(`Block ${height}: fetch complete, ${block.transactions.length} transactions`)
+
+        // Stream as NDJSON - one JSON object per line for memory efficiency
+        // This allows GC to collect each transaction after it's written
+
+        // Check if connection is still writable
+        if (res.writableEnded || res.destroyed) {
+          console.error(`Block ${height}: response already closed before streaming`)
+          return
+        }
+
+        // Block header/metadata (txCount now available)
+        console.log(`Block ${height}: writing header...`)
         res.write(JSON.stringify({
           type: 'header',
           height,
@@ -950,32 +971,66 @@ export class StatusServer {
           txCount: block.transactions.length,
           source: 'p2p'
         }) + '\n')
+        console.log(`Block ${height}: header written, streaming ${block.transactions.length} transactions...`)
 
-        // Stream each transaction as a separate line
+        // Stream each transaction as a separate line with backpressure handling
+        let txCount = 0
         for (const tx of block.transactions) {
+          if (res.writableEnded || res.destroyed) {
+            console.error(`Block ${height}: response closed after ${txCount} transactions`)
+            return
+          }
+
+          let data
           try {
             const parsed = parseTx(tx.rawHex)
-            res.write(JSON.stringify({
+            data = JSON.stringify({
               type: 'tx',
               txid: tx.txid,
               size: tx.rawHex.length / 2,
               inputs: parsed.inputs,
               outputs: parsed.outputs
-            }) + '\n')
+            }) + '\n'
           } catch (err) {
-            res.write(JSON.stringify({
+            data = JSON.stringify({
               type: 'tx',
               txid: tx.txid,
               size: tx.rawHex.length / 2,
               error: 'parse failed: ' + err.message
-            }) + '\n')
+            }) + '\n'
+          }
+
+          // Handle backpressure: if buffer is full, wait for drain
+          const canContinue = res.write(data)
+          if (!canContinue) {
+            await new Promise(resolve => res.once('drain', resolve))
+          }
+          txCount++
+
+          // Log progress every 100 transactions for large blocks
+          if (txCount % 100 === 0) {
+            console.log(`Block ${height}: streamed ${txCount}/${block.transactions.length} transactions`)
           }
         }
 
+        console.log(`Block ${height}: streaming complete, ending response`)
         res.end()
+        console.log(`Block ${height}: response ended successfully`)
       } catch (err) {
-        res.writeHead(502, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
+        console.error(`Block ${height} error: ${err.message}`)
+        console.error(err.stack)
+        // Since we've already sent HTTP 200 headers, we can't send a 502
+        // Instead, write an error in the NDJSON stream
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: `Failed to fetch block: ${err.message}` }))
+        } else {
+          res.write(JSON.stringify({
+            type: 'error',
+            error: `Failed to fetch block: ${err.message}`
+          }) + '\n')
+          res.end()
+        }
       }
       return
     }

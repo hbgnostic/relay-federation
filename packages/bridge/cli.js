@@ -723,7 +723,10 @@ async function cmdStart () {
 
   // ── 6b. BSV P2P header sync — connect to BSV nodes ──────
   const { BSVNodeClient } = await import('./lib/bsv-node-client.js')
-  const bsvNode = new BSVNodeClient()
+  const bsvNode = new BSVNodeClient({
+    maxRetries: 8,         // Try up to 8 peers per block fetch (we have 16-20 connected)
+    retryTimeoutMs: 120000 // 120s timeout per peer (246MB blocks exist, need ~50s+ to download)
+  })
 
   bsvNode.on('headers', async ({ headers, count }) => {
     // Feed into HeaderRelay for peer propagation
