@@ -593,7 +593,7 @@ export class BSVPeer extends EventEmitter {
     }
 
     if (txids.length > 0) {
-      this.emit('tx:inv', { txids })
+      this.emit('tx:inv', { txids, peer: this })
     }
   }
 
@@ -723,7 +723,7 @@ export class BSVPeer extends EventEmitter {
     offset += writeVarInt(payload, offset, userAgentBuf.length)
     userAgentBuf.copy(payload, offset); offset += userAgentBuf.length
     payload.writeInt32LE(this._bestHeight, offset); offset += 4
-    payload[offset] = 0; offset += 1
+    payload[offset] = 1; offset += 1
 
     this._sendMessage('version', payload.subarray(0, offset))
   }

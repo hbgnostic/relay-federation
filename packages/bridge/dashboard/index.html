@@ -951,6 +951,7 @@
     <button onclick="setTab('inscriptions')">Inscriptions</button>
     <button onclick="setTab('tokens')">Tokens</button>
     <button onclick="setTab('apps')">Apps</button>
+    <button onclick="setTab('x402')">x402</button>
   </div>
   <div class="header-right">
     <div class="header-stats">
@@ -1100,6 +1101,7 @@ let activeTab = 'overview';
 let savedExplorerInput = '';
 let savedExplorerResult = '';
 let appsData = null;
+let x402Data = null;
 let latestPrice = null;
 let mempoolHistory = [];
 let peerCountHistory = [];
@@ -1346,6 +1348,7 @@ function renderSparkline(data, color) {
   return svg + '</svg>';
 }
 function scoreColor(v) { return v >= 0.7 ? 'green' : v >= 0.4 ? 'yellow' : 'red'; }
+function fmtAge(ts) { var s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return s + 's ago'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; return Math.floor(s / 86400) + 'd ago'; }
 function fmtSats(n) { return n === null || n === undefined ? '-' : n.toLocaleString(); }
 function fmtHeight(n) { return n > 0 ? n.toLocaleString() : '-'; }
 function isOperator(url) { return !!operatorTokens[url]; }
@@ -1505,17 +1508,18 @@ function setTab(tab) {
   if (activeTab === 'overview' && tab !== 'overview') destroyMeshMap3D();
   activeTab = tab;
   const buttons = document.querySelectorAll('#headerTabs button');
-  const tabs = ['overview', 'mempool', 'explorer', 'inscriptions', 'tokens', 'apps'];
+  const tabs = ['overview', 'mempool', 'explorer', 'inscriptions', 'tokens', 'apps', 'x402'];
   buttons.forEach((btn, i) => btn.classList.toggle('active', tabs[i] === tab));
   renderActiveTab();
   if (tab === 'apps') setTimeout(fetchAppsData, 50);
   if (tab === 'tokens') setTimeout(fetchTokens, 50);
+  if (tab === 'x402') setTimeout(fetchX402Data, 50);
 }
 
 function renderActiveTab(fromPoll) {
   const el = document.getElementById('tabContent');
   // Skip apps/explorer re-render during poll (preserves state)
-  if (fromPoll && (activeTab === 'apps' || activeTab === 'explorer' || activeTab === 'inscriptions' || activeTab === 'tokens')) return;
+  if (fromPoll && (activeTab === 'apps' || activeTab === 'explorer' || activeTab === 'inscriptions' || activeTab === 'tokens' || activeTab === 'x402')) return;
   // On poll, if overview tab has active 3D scene, just update data — don't rebuild DOM
   if (fromPoll && activeTab === 'overview' && mesh3d) {
     updateMeshMap3D();
@@ -1531,6 +1535,7 @@ function renderActiveTab(fromPoll) {
     case 'inscriptions': html = renderInscriptionsTab(); break;
     case 'tokens': html = renderTokensTab(); break;
     case 'apps': html = renderAppsTab(); break;
+    case 'x402': html = renderX402Tab(); break;
     default: html = renderOverviewTab();
   }
   // Only update DOM if content actually changed (prevents flash)
@@ -3019,6 +3024,175 @@ async function fetchAppsData() {
       if (el) el.innerHTML = '<div class="glass" style="padding:20px;color:var(--accent-red)">' + escapeHtml(e.message) + '</div>';
     }
   }
+}
+
+// ── x402 tab ──────────────────────────────────────
+function renderX402Tab() {
+  let html = '<div style="margin-bottom:10px"><span style="font-size:15px;font-weight:600;color:var(--text-primary)">x402 Payment Gate</span>';
+  html += '<span style="font-size:11px;color:var(--text-muted);margin-left:10px">Free reads, paid writes</span></div>';
+
+  if (!x402Data) {
+    html += '<div class="glass" style="padding:20px;color:var(--text-muted)">Loading...</div>';
+    return html;
+  }
+
+  // Status row
+  var statusClr = x402Data.enabled ? 'var(--accent-green)' : 'var(--text-dim)';
+  var statusTxt = x402Data.enabled ? 'ENABLED' : 'DISABLED';
+  html += '<div class="glass" style="padding:10px 16px;margin-bottom:8px;display:flex;align-items:center;gap:10px">';
+  html += '<div style="width:8px;height:8px;border-radius:50%;background:' + statusClr + '"></div>';
+  html += '<span style="font-size:13px;font-weight:600;color:' + statusClr + '">' + statusTxt + '</span>';
+  if (x402Data.payTo) {
+    html += '<span style="margin-left:auto;font-family:monospace;font-size:11px;color:var(--text-muted)">' + escapeHtml(x402Data.payTo) + '</span>';
+  }
+  html += '</div>';
+
+  // Revenue card
+  if (x402Data.revenue) {
+    var rev = x402Data.revenue;
+    html += '<div class="glass" style="padding:12px 16px;margin-bottom:8px">';
+    html += '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Revenue</div>';
+    html += '<div style="display:flex;align-items:baseline;gap:16px;margin-bottom:8px">';
+    html += '<div><span style="font-size:22px;font-weight:700;color:var(--accent-green)">' + Number(rev.totalSatsEarned).toLocaleString() + '</span><span style="font-size:11px;color:var(--text-muted);margin-left:6px">total sats</span></div>';
+    html += '<div style="font-size:12px;color:var(--text-dim)">' + Number(rev.todaySats).toLocaleString() + ' today</div>';
+    html += '<div style="font-size:12px;color:var(--text-dim)">' + Number(rev.weekSats).toLocaleString() + ' this week</div>';
+    html += '</div>';
+    html += '<div class="panel-row"><span class="label">Receipts</span><span class="value">' + rev.totalReceipts + '</span></div>';
+    html += '<div class="panel-row"><span class="label">Pending</span><span class="value">' + rev.pendingClaims + '</span></div>';
+    html += '</div>';
+  }
+
+  // Pricing table
+  if (x402Data.endpoints && x402Data.endpoints.length > 0) {
+    html += '<div class="glass" style="padding:16px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Pricing</div>';
+    for (var i = 0; i < x402Data.endpoints.length; i++) {
+      var ep = x402Data.endpoints[i];
+      html += '<div class="panel-row"><span class="label" style="font-family:monospace;font-size:11px">' + escapeHtml(ep.method) + ' ' + escapeHtml(ep.path) + '</span><span class="value" style="color:var(--accent-green)">' + ep.satoshis.toLocaleString() + ' sats</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // Recent receipts (operator only)
+  if (x402Data.recentReceipts && x402Data.recentReceipts.length > 0) {
+    html += '<div class="glass" style="padding:16px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Recent Receipts</div>';
+    for (var j = 0; j < x402Data.recentReceipts.length; j++) {
+      var rx = x402Data.recentReceipts[j];
+      var age = rx.createdAt ? fmtAge(rx.createdAt) : '?';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px">';
+      html += '<span style="font-family:monospace;color:var(--text-muted)">' + escapeHtml(rx.txid.slice(0, 12)) + '...</span>';
+      html += '<span style="color:var(--text-dim)">' + escapeHtml(rx.endpoint) + '</span>';
+      html += '<span style="color:var(--accent-green)">' + Number(rx.satoshisPaid).toLocaleString() + ' sats</span>';
+      html += '<span style="color:var(--text-dim)">' + age + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Settings panel (operator only)
+  var b = bridgeData.get(selectedBridge);
+  if (b && isOperator(b._url)) {
+    html += '<div class="glass" style="padding:12px 16px;margin-bottom:8px">';
+    html += '<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Settings</div>';
+
+    // Enable/disable checkbox
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+    html += '<input type="checkbox" id="x402Enabled"' + (x402Data.enabled ? ' checked' : '') + ' style="cursor:pointer">';
+    html += '<label for="x402Enabled" class="label" style="cursor:pointer">Enable Payment Gate</label>';
+    html += '</div>';
+
+    // PayTo address
+    html += '<div style="margin-bottom:8px">';
+    html += '<div class="label" style="margin-bottom:4px">Pay To Address</div>';
+    html += '<input type="text" id="x402PayTo" value="' + escapeHtml(x402Data.payTo || '') + '" placeholder="1YourBSVAddress..." style="width:100%;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;box-sizing:border-box">';
+    html += '</div>';
+
+    // Endpoint pricing
+    html += '<div class="label" style="margin-bottom:8px">Endpoint Pricing (satoshis)</div>';
+    var epList = x402Data.endpoints || [];
+    html += '<div id="x402Endpoints">';
+    for (var k = 0; k < epList.length; k++) {
+      html += '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">';
+      html += '<input type="text" value="' + escapeHtml(epList[k].method + ':' + epList[k].path) + '" class="x402-ep-key" style="flex:2;padding:4px 6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px">';
+      html += '<input type="number" value="' + epList[k].satoshis + '" class="x402-ep-val" style="flex:1;padding:4px 6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px">';
+      html += '<button onclick="removeX402Endpoint(this)" style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:14px">×</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<button class="btn" style="font-size:11px;padding:4px 12px;margin-bottom:12px" onclick="addX402Endpoint()">+ Add Endpoint</button>';
+
+    // Save button
+    html += '<div style="margin-top:8px;text-align:right">';
+    html += '<button class="btn primary" style="font-size:12px;padding:6px 20px" onclick="saveX402Settings()">Save Settings</button>';
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // Discovery endpoint hint
+  html += '<div class="glass" style="padding:12px;font-size:11px;color:var(--text-dim)">';
+  html += 'Discovery: <span style="font-family:monospace;color:var(--text-muted)">GET /.well-known/x402</span>';
+  html += '</div>';
+
+  return html;
+}
+
+async function fetchX402Data() {
+  var b = bridgeData.get(selectedBridge);
+  if (!b) return;
+  try {
+    var r = await fetch(b._url + '/x402' + getAuthParam(b._url), { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) { x402Data = { enabled: false, endpoints: [] }; if (activeTab === 'x402') { var el = document.getElementById('tabContent'); if (el) el.innerHTML = renderX402Tab(); } return; }
+    x402Data = await r.json();
+    if (activeTab === 'x402') {
+      var el = document.getElementById('tabContent');
+      if (el) el.innerHTML = renderX402Tab();
+    }
+  } catch (e) {
+    x402Data = { enabled: false, endpoints: [] };
+    if (activeTab === 'x402') {
+      var el = document.getElementById('tabContent');
+      if (el) el.innerHTML = '<div class="glass" style="padding:20px;color:var(--accent-red)">' + escapeHtml(e.message) + '</div>';
+    }
+  }
+}
+
+
+function addX402Endpoint() {
+  var container = document.getElementById('x402Endpoints');
+  if (!container) return;
+  var div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
+  div.innerHTML = '<input type="text" value="POST:/api/broadcast" class="x402-ep-key" style="flex:2;padding:4px 6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px">' +
+    '<input type="number" value="1000" class="x402-ep-val" style="flex:1;padding:4px 6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px">' +
+    '<button onclick="removeX402Endpoint(this)" style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:14px">\u00d7</button>';
+  container.appendChild(div);
+}
+
+function removeX402Endpoint(btn) { btn.parentElement.remove(); }
+
+async function saveX402Settings() {
+  var b = bridgeData.get(selectedBridge);
+  if (!b) return;
+  var enabled = document.getElementById('x402Enabled')?.checked || false;
+  var payTo = document.getElementById('x402PayTo').value.trim();
+  var keys = document.querySelectorAll('.x402-ep-key');
+  var vals = document.querySelectorAll('.x402-ep-val');
+  var endpoints = {};
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i].value.trim();
+    var v = parseInt(vals[i].value, 10);
+    if (k && !isNaN(v)) endpoints[k] = v;
+  }
+  try {
+    var r = await fetch(b._url + '/x402' + getAuthParam(b._url), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: enabled, payTo: payTo, endpoints: endpoints })
+    });
+    if (r.ok) { fetchX402Data(); }
+    else { var err = await r.json().catch(function() { return {}; }); alert(err.error || 'Save failed'); }
+  } catch (e) { alert(e.message); }
 }
 
 // ── Log viewer ─────────────────────────────────────

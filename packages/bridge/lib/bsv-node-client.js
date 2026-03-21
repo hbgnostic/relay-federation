@@ -146,6 +146,21 @@ export class BSVNodeClient extends EventEmitter {
   }
 
   /**
+   * Fetch a transaction from a specific peer (the one that announced it via inv).
+   * Falls back to any connected peer if the target peer is unavailable.
+   * @param {import('./bsv-peer.js').BSVPeer} peer
+   * @param {string} txid
+   * @param {number} [timeoutMs=5000]
+   * @returns {Promise<{ txid, rawHex }>}
+   */
+  getTxFromPeer (peer, txid, timeoutMs = 5000) {
+    if (peer && peer._handshakeComplete) {
+      return peer.getTx(txid, timeoutMs)
+    }
+    return this.getTx(txid, timeoutMs)
+  }
+
+  /**
    * Trigger header sync on connected peers.
    */
   syncHeaders () {
