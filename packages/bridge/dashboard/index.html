@@ -1199,7 +1199,8 @@ function renderCardExpanded(type, b, op) {
       html += '<div class="panel-row"><span class="label">Mesh Bridges</span><span class="value">' + b.peers.connected + ' connected</span></div>';
       html += '<div style="font-size:11px;color:var(--text-dim);margin:16px 0 12px;text-transform:uppercase;letter-spacing:1px">Transactions</div>';
       html += '<div class="panel-row"><span class="label">Mempool</span><span class="value">' + b.txs.mempool + ' txs</span></div>';
-      html += '<div class="panel-row"><span class="label">Seen</span><span class="value">' + b.txs.seen + ' txs</span></div>';
+      html += '<div class="panel-row"><span class="label">Network Seen</span><span class="value">' + (b.txs.known || 0).toLocaleString() + ' txids</span></div>';
+      html += '<div class="panel-row"><span class="label">Relayed</span><span class="value">' + b.txs.seen + ' txs</span></div>';
       // Mempool sparkline (last 20 polls)
       if (mempoolHistory.length > 1) {
         html += '<div style="margin-top:12px"><div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Mempool History (last ' + mempoolHistory.length + ' polls)</div>';
@@ -1706,6 +1707,14 @@ function renderMempoolTab() {
   if (!b) return '<div class="no-results">Select a bridge</div>';
 
   let html = '<div class="tab-title">Mempool <span class="count">' + (b._mempool ? b._mempool.count : 0) + ' transactions</span></div>';
+
+  const known = b.txs ? b.txs.known || 0 : 0;
+  if (known > 0) {
+    html += '<div class="glass" style="padding:16px;margin-bottom:12px;display:flex;gap:24px;align-items:center">';
+    html += '<div><span class="label">Network Txids Seen</span><div style="font-size:1.5em;font-weight:700;color:var(--accent)">' + known.toLocaleString() + '</div></div>';
+    html += '<div style="color:var(--text-dim);font-size:0.85em">Transactions observed via P2P (10 min window)</div>';
+    html += '</div>';
+  }
 
   if (!b._mempool || b._mempool.txs.length === 0) {
     html += '<div class="glass" style="padding:40px;text-align:center"><div style="color:var(--text-dim)">No transactions in mempool</div></div>';
