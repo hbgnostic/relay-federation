@@ -1103,6 +1103,7 @@ let appsData = null;
 let latestPrice = null;
 let mempoolHistory = [];
 let peerCountHistory = [];
+let rssHistory = [];
 
 function openCardOverlay(type) {
   const b = bridgeData.get(selectedBridge);
@@ -1280,6 +1281,40 @@ function renderCardExpanded(type, b, op) {
       html += '<p style="margin-bottom:8px">More BSV bonded + longer held unspent = higher BND score. Minimum: 0.01 BSV.</p>';
       html += '</div></div>';
       break;
+    case 'system':
+      if (!b.system) return '';
+      var sysMem = b.system;
+      var sysMemPct = Math.round(sysMem.usedMemMB / sysMem.totalMemMB * 100);
+      var sysMemClr = sysMemPct > 85 ? 'var(--accent-red)' : sysMemPct > 70 ? 'var(--accent-yellow)' : 'var(--accent-green)';
+      html += '<h2>System</h2>';
+      // RAM hero
+      html += '<div style="text-align:center;padding:20px 0 16px">';
+      html += '<div style="font-size:32px;font-weight:700;color:' + sysMemClr + ';letter-spacing:-1px">' + sysMemPct + '%</div>';
+      html += '<div style="font-size:14px;color:var(--text-muted);margin-top:4px">RAM Usage</div>';
+      html += '</div>';
+      // RAM bar
+      html += '<div style="margin:0 0 20px"><div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:' + sysMemPct + '%;background:' + sysMemClr + ';border-radius:4px;transition:width 0.5s"></div></div>';
+      html += '<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;color:var(--text-dim)"><span>Used: ' + sysMem.usedMemMB + ' MB</span><span>Free: ' + sysMem.freeMemMB + ' MB</span><span>Total: ' + sysMem.totalMemMB + ' MB</span></div></div>';
+      // Process
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;text-transform:uppercase;letter-spacing:1px">Process</div>';
+      html += '<div class="panel-row"><span class="label">RSS</span><span class="value">' + sysMem.processRssMB + ' MB</span></div>';
+      html += '<div class="panel-row"><span class="label">Node.js</span><span class="value">' + sysMem.nodeVersion + '</span></div>';
+      // CPU
+      html += '<div style="font-size:11px;color:var(--text-dim);margin:16px 0 12px;text-transform:uppercase;letter-spacing:1px">CPU</div>';
+      html += '<div class="panel-row"><span class="label">Cores</span><span class="value">' + sysMem.cpuCount + '</span></div>';
+      html += '<div class="panel-row"><span class="label">Load (1m)</span><span class="value">' + sysMem.loadAvg[0] + '</span></div>';
+      html += '<div class="panel-row"><span class="label">Load (5m)</span><span class="value">' + sysMem.loadAvg[1] + '</span></div>';
+      html += '<div class="panel-row"><span class="label">Load (15m)</span><span class="value">' + sysMem.loadAvg[2] + '</span></div>';
+      // OS
+      html += '<div style="font-size:11px;color:var(--text-dim);margin:16px 0 12px;text-transform:uppercase;letter-spacing:1px">Host</div>';
+      html += '<div class="panel-row"><span class="label">Platform</span><span class="value">' + sysMem.platform + ' / ' + sysMem.arch + '</span></div>';
+      html += '<div class="panel-row"><span class="label">OS Uptime</span><span class="value">' + fmtUptime(sysMem.osUptime) + '</span></div>';
+      // RSS sparkline
+      if (rssHistory && rssHistory.length > 1) {
+        html += '<div style="font-size:11px;color:var(--text-dim);margin:16px 0 12px;text-transform:uppercase;letter-spacing:1px">Process RSS (last ' + rssHistory.length + ' polls)</div>';
+        html += renderSparkline(rssHistory, 'rgba(210,153,34,0.7)');
+      }
+      break;
     default: return '';
   }
   return html;
@@ -1390,7 +1425,11 @@ async function discoverBridges() {
 }
 
 // ── Poll ───────────────────────────────────────────
+let polling = false;
 async function pollAll() {
+  if (polling) return;
+  polling = true;
+  try {
   if (!discoveryDone) await discoverBridges();
   const results = await Promise.all(BRIDGES.map(fetchBridge));
   const mempools = await Promise.all(BRIDGES.map(fetchMempool));
@@ -1405,12 +1444,14 @@ async function pollAll() {
   const sel = bridgeData.get(selectedBridge);
   if (sel && sel.txs) { mempoolHistory.push(sel.txs.mempool); if (mempoolHistory.length > 20) mempoolHistory.shift(); }
   if (sel && sel.peers) { peerCountHistory.push(sel.peers.connected); if (peerCountHistory.length > 20) peerCountHistory.shift(); }
+  if (sel && sel.system) { rssHistory.push(sel.system.processRssMB); if (rssHistory.length > 20) rssHistory.shift(); }
   // Fetch price from self (same-origin, always works)
   fetch('/price', { signal: AbortSignal.timeout(5000) })
     .then(r => r.ok ? r.json() : null).then(d => { if (d) { latestPrice = d; const el = document.querySelector('.stats-hero .stat-card:last-child .stat-value'); if (el) el.textContent = '$' + d.usd.toFixed(2); } }).catch(() => {});
   renderHeader();
   renderBridgeRail();
   renderActiveTab(true);
+  } finally { polling = false; }
 }
 
 // ── Header stats ───────────────────────────────────
@@ -1636,6 +1677,18 @@ function renderOverviewTab() {
     }
   }
   html += '</div>';
+
+  // System card
+  if (b.system) {
+    var memPct = Math.round(b.system.usedMemMB / b.system.totalMemMB * 100);
+    var memColor = memPct > 85 ? 'red' : memPct > 70 ? 'yellow' : 'green';
+    html += '<div class="detail-card glass" onclick="openCardOverlay(\'system\')"><h3>System <span style="font-size:9px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">— click to expand</span></h3>';
+    html += '<div class="panel-row"><span class="label">RAM</span><span class="value ' + memColor + '">' + b.system.usedMemMB + ' / ' + b.system.totalMemMB + ' MB (' + memPct + '%)</span></div>';
+    html += '<div class="panel-row"><span class="label">Process RSS</span><span class="value">' + b.system.processRssMB + ' MB</span></div>';
+    html += '<div class="panel-row"><span class="label">CPU Load</span><span class="value">' + b.system.loadAvg[0] + ' / ' + b.system.loadAvg[1] + ' / ' + b.system.loadAvg[2] + '</span></div>';
+    html += '<div class="panel-row"><span class="label">OS Uptime</span><span class="value">' + fmtUptime(b.system.osUptime) + '</span></div>';
+    html += '</div>';
+  }
 
   html += '</div>'; // cards-grid
 
@@ -2519,8 +2572,8 @@ function showAuthModal(bridgeUrl) {
   openModal('<h2>Operator Login</h2><div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary)">' + bName + ' &mdash; ' + bIp + '</div><div class="form-group"><label>statusSecret (from bridge config.json)</label><input type="password" id="authInput" value="' + existing + '" placeholder="64-char hex token"></div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveAuth(\'' + bridgeUrl + '\')">Login</button></div>');
   setTimeout(() => document.getElementById('authInput').focus(), 100);
 }
-function saveAuth(bridgeUrl) { const t = document.getElementById('authInput').value.trim(); if (!t) delete operatorTokens[bridgeUrl]; else operatorTokens[bridgeUrl] = t; localStorage.setItem('relay_operator_tokens', JSON.stringify(operatorTokens)); closeModal(); pollAll(); }
-function logoutOperator(bridgeUrl) { delete operatorTokens[bridgeUrl]; localStorage.setItem('relay_operator_tokens', JSON.stringify(operatorTokens)); pollAll(); }
+async function saveAuth(bridgeUrl) { const t = document.getElementById('authInput').value.trim(); if (!t) delete operatorTokens[bridgeUrl]; else operatorTokens[bridgeUrl] = t; localStorage.setItem('relay_operator_tokens', JSON.stringify(operatorTokens)); closeModal(); destroyMeshMap3D(); const bridge = BRIDGES.find(b => b.url === bridgeUrl); if (bridge) { const data = await fetchBridge(bridge); bridgeData.set(data._name, data); } renderActiveTab(false); }
+async function logoutOperator(bridgeUrl) { delete operatorTokens[bridgeUrl]; localStorage.setItem('relay_operator_tokens', JSON.stringify(operatorTokens)); destroyMeshMap3D(); const bridge = BRIDGES.find(b => b.url === bridgeUrl); if (bridge) { const data = await fetchBridge(bridge); bridgeData.set(data._name, data); } renderActiveTab(false); }
 
 function showRegisterModal(bridgeUrl) {
   openModal('<h2>Register Bridge</h2><div class="warning">This will broadcast a stake bond + registration transaction to the BSV network. Ensure your bridge wallet is funded.</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="regBtn" onclick="doRegister(\'' + bridgeUrl + '\')">Register</button></div><div id="jobLog" class="job-log" style="display:none"></div>');

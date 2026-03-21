@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -144,6 +145,18 @@ export class StatusServer {
         connected: this._bsvNodeClient ? this._bsvNodeClient.connectedCount > 0 : false,
         peers: this._bsvNodeClient ? this._bsvNodeClient.connectedCount : 0,
         height: this._bsvNodeClient ? this._bsvNodeClient.bestHeight : null
+      },
+      system: {
+        totalMemMB: Math.round(os.totalmem() / 1048576),
+        freeMemMB: Math.round(os.freemem() / 1048576),
+        usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
+        processRssMB: Math.round(process.memoryUsage.rss() / 1048576),
+        cpuCount: os.cpus().length,
+        loadAvg: os.loadavg().map(v => Math.round(v * 100) / 100),
+        platform: os.platform(),
+        arch: os.arch(),
+        nodeVersion: process.version,
+        osUptime: Math.floor(os.uptime())
       }
     }
 
