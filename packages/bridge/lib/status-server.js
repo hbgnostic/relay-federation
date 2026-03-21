@@ -1233,47 +1233,85 @@ export class StatusServer {
       return
     }
 
-    // GET /address/:addr/history — local sessions first, WoC fallback
+    // GET /address/:addr/history — local P2P data, optional WoC fallback
+    // Add ?p2p=true to skip WoC entirely (pure P2P mode)
     const addrMatch = path.match(/^\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
     if (req.method === 'GET' && addrMatch) {
       const addr = addrMatch[1]
-      const cached = this._addressCache.get(addr)
-      if (cached && Date.now() - cached.time < 60000) {
+      const p2pOnly = url.searchParams.get('p2p') === 'true'
+      const cacheKey = addr + (p2pOnly ? ':p2p' : '')
+      const cacheTtl = p2pOnly ? 5000 : 60000
+      const cached = this._addressCache.get(cacheKey)
+      if (cached && Date.now() - cached.time < cacheTtl) {
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ address: addr, history: cached.data, cached: true }))
+        res.end(JSON.stringify({ address: addr, history: cached.data, cached: true, p2p: p2pOnly }))
         return
       }
       try {
-        // Local sessions from LevelDB (source of truth)
+        // Local sessions from LevelDB
         const localSessions = await this._store.getSessions(addr, 2000)
         const seen = new Set(localSessions.map(s => s.txId))
         const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
 
-        // WoC fallback for older txs + block heights
-        try {
-          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
-          if (resp.ok) {
-            const data = await resp.json()
-            const wocHistory = Array.isArray(data) ? data : (data.result || [])
-            for (const entry of wocHistory) {
-              if (seen.has(entry.tx_hash)) {
-                const match = history.find(h => h.tx_hash === entry.tx_hash)
-                if (match && entry.height > 0) match.height = entry.height
-              } else {
-                history.push(entry)
-                seen.add(entry.tx_hash)
+        // Scan P2P mempool for transactions with outputs to this address
+        if (this._txRelay) {
+          for (const [txid, rawHex] of this._txRelay.mempool) {
+            if (seen.has(txid)) continue
+            try {
+              const parsed = parseTx(rawHex)
+              const match = parsed.outputs && parsed.outputs.some(o => o.address === addr)
+              if (match) {
+                history.push({ tx_hash: txid, height: -1 })
+                seen.add(txid)
+              }
+            } catch {} // skip unparseable txs
+          }
+        }
+
+        // Also check stored transactions (confirmed via P2P headers)
+        if (this._store) {
+          try {
+            const storedTxs = await this._store.getTxsByAddress(addr)
+            if (storedTxs) {
+              for (const stx of storedTxs) {
+                if (!seen.has(stx.txid)) {
+                  history.push({ tx_hash: stx.txid, height: stx.height || -1 })
+                  seen.add(stx.txid)
+                }
               }
             }
-          }
-        } catch {} // WoC failure doesn't block response
+          } catch {} // method may not exist, that's fine
+        }
 
-        this._addressCache.set(addr, { data: history, time: Date.now() })
+        // WoC fallback for older txs + block heights (skipped in p2p mode)
+        if (!p2pOnly) {
+          try {
+            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+            if (resp.ok) {
+              const data = await resp.json()
+              const wocHistory = Array.isArray(data) ? data : (data.result || [])
+              for (const entry of wocHistory) {
+                if (seen.has(entry.tx_hash)) {
+                  const match = history.find(h => h.tx_hash === entry.tx_hash)
+                  if (match && entry.height > 0) match.height = entry.height
+                } else {
+                  history.push(entry)
+                  seen.add(entry.tx_hash)
+                }
+              }
+            }
+          } catch {} // WoC failure doesn't block response
+        }
+
+        // Shorter cache for p2p mode (5s vs 60s) since we're checking live mempool
+        const cacheTtl = p2pOnly ? 5000 : 60000
+        this._addressCache.set(cacheKey, { data: history, time: Date.now() })
         if (this._addressCache.size > 100) {
           const oldest = this._addressCache.keys().next().value
           this._addressCache.delete(oldest)
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ address: addr, history, cached: false }))
+        res.end(JSON.stringify({ address: addr, history, cached: false, p2p: p2pOnly }))
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Failed to fetch address history: ' + err.message }))
@@ -1646,41 +1684,77 @@ export class StatusServer {
       return
     }
 
-    // GET /api/address/:addr/history — local sessions first, WoC fallback (web app compat)
+    // GET /api/address/:addr/history — local P2P data, optional WoC fallback (web app compat)
+    // Add ?p2p=true to skip WoC entirely (pure P2P mode)
     const apiHistMatch = path.match(/^\/api\/address\/([13][a-km-zA-HJ-NP-Z1-9]{24,33})\/history$/)
     if (req.method === 'GET' && apiHistMatch) {
       const addr = apiHistMatch[1]
-      const cached = this._addressCache.get(addr)
-      if (cached && Date.now() - cached.time < 60000) {
+      const p2pOnly = url.searchParams.get('p2p') === 'true'
+      const cacheKey = addr + (p2pOnly ? ':p2p' : '')
+      const cacheTtl = p2pOnly ? 5000 : 60000
+      const cached = this._addressCache.get(cacheKey)
+      if (cached && Date.now() - cached.time < cacheTtl) {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(cached.data))
         return
       }
       try {
-        // Local sessions from LevelDB (source of truth)
+        // Local sessions from LevelDB
         const localSessions = await this._store.getSessions(addr, 2000)
         const seen = new Set(localSessions.map(s => s.txId))
         const history = localSessions.map(s => ({ tx_hash: s.txId, height: -1 }))
 
-        // WoC fallback for older txs + block heights
-        try {
-          const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
-          if (resp.ok) {
-            const data = await resp.json()
-            const wocHistory = Array.isArray(data) ? data : (data.result || [])
-            for (const entry of wocHistory) {
-              if (seen.has(entry.tx_hash)) {
-                const match = history.find(h => h.tx_hash === entry.tx_hash)
-                if (match && entry.height > 0) match.height = entry.height
-              } else {
-                history.push(entry)
-                seen.add(entry.tx_hash)
+        // Scan P2P mempool for transactions with outputs to this address
+        if (this._txRelay) {
+          for (const [txid, rawHex] of this._txRelay.mempool) {
+            if (seen.has(txid)) continue
+            try {
+              const parsed = parseTx(rawHex)
+              const match = parsed.outputs && parsed.outputs.some(o => o.address === addr)
+              if (match) {
+                history.push({ tx_hash: txid, height: -1 })
+                seen.add(txid)
+              }
+            } catch {} // skip unparseable txs
+          }
+        }
+
+        // Also check stored transactions (confirmed via P2P headers)
+        if (this._store) {
+          try {
+            const storedTxs = await this._store.getTxsByAddress(addr)
+            if (storedTxs) {
+              for (const stx of storedTxs) {
+                if (!seen.has(stx.txid)) {
+                  history.push({ tx_hash: stx.txid, height: stx.height || -1 })
+                  seen.add(stx.txid)
+                }
               }
             }
-          }
-        } catch {} // WoC failure doesn't block response
+          } catch {} // method may not exist, that's fine
+        }
 
-        this._addressCache.set(addr, { data: history, time: Date.now() })
+        // WoC fallback for older txs + block heights (skipped in p2p mode)
+        if (!p2pOnly) {
+          try {
+            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+            if (resp.ok) {
+              const data = await resp.json()
+              const wocHistory = Array.isArray(data) ? data : (data.result || [])
+              for (const entry of wocHistory) {
+                if (seen.has(entry.tx_hash)) {
+                  const match = history.find(h => h.tx_hash === entry.tx_hash)
+                  if (match && entry.height > 0) match.height = entry.height
+                } else {
+                  history.push(entry)
+                  seen.add(entry.tx_hash)
+                }
+              }
+            }
+          } catch {} // WoC failure doesn't block response
+        }
+
+        this._addressCache.set(cacheKey, { data: history, time: Date.now() })
         if (this._addressCache.size > 100) {
           const oldest = this._addressCache.keys().next().value
           this._addressCache.delete(oldest)
