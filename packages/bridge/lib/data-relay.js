@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { createHash } from 'node:crypto'
-import { verifyHash } from '@relay-federation/common/crypto'
+import { verifyHash, signHash } from '@relay-federation/common/crypto'
 
 /**
  * DataRelay — relays ephemeral signed data envelopes between peers.

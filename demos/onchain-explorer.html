@@ -30,7 +30,7 @@
     .header .subtitle {
       font-size: 15px;
       color: #888;
-      max-width: 600px;
+      max-width: 680px;
       margin: 0 auto;
       line-height: 1.5;
     }
@@ -526,6 +526,211 @@
     .post-reply {
       border-left: 3px solid rgba(147, 130, 220, 0.3);
     }
+
+    /* ══════════════════════════════════════════════════════════════
+       WHALE STYLES — Capital flow visualization
+       ══════════════════════════════════════════════════════════════ */
+
+    .whale-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+      padding: 20px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .whale-stat {
+      text-align: center;
+    }
+
+    .whale-stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .whale-stat-value.highlight {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .whale-stat-label {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    .whale-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .whale-card {
+      position: relative;
+      border-radius: 12px;
+      padding: 20px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      overflow: hidden;
+    }
+
+    .whale-card:hover {
+      transform: translateY(-2px);
+    }
+
+    /* Tier: Dolphin (10-100 BSV) */
+    .whale-card.tier-dolphin {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05));
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .whale-card.tier-dolphin .whale-amount { color: #60a5fa; }
+    .whale-card.tier-dolphin .whale-tier-badge { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+
+    /* Tier: Whale (100-1,000 BSV) */
+    .whale-card.tier-whale {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(168, 85, 247, 0.05));
+      border: 1px solid rgba(168, 85, 247, 0.4);
+    }
+    .whale-card.tier-whale .whale-amount { color: #c084fc; }
+    .whale-card.tier-whale .whale-tier-badge { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+
+    /* Tier: Mega Whale (1,000-10,000 BSV) */
+    .whale-card.tier-mega {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(239, 68, 68, 0.1));
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+    .whale-card.tier-mega .whale-amount {
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .whale-card.tier-mega .whale-tier-badge { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+
+    /* Tier: Leviathan (10,000+ BSV) */
+    .whale-card.tier-leviathan {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(168, 85, 247, 0.2), rgba(245, 158, 11, 0.1));
+      border: 2px solid rgba(239, 68, 68, 0.6);
+      animation: leviathan-glow 3s ease-in-out infinite;
+    }
+    .whale-card.tier-leviathan .whale-amount {
+      background: linear-gradient(135deg, #ef4444, #f59e0b, #fbbf24);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: leviathan-text 3s ease-in-out infinite;
+    }
+    .whale-card.tier-leviathan .whale-tier-badge {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(245, 158, 11, 0.2));
+      color: #fbbf24;
+      animation: leviathan-badge 3s ease-in-out infinite;
+    }
+
+    @keyframes leviathan-glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3), 0 0 40px rgba(245, 158, 11, 0.1); }
+      50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.5), 0 0 60px rgba(245, 158, 11, 0.2); }
+    }
+
+    @keyframes leviathan-text {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.2); }
+    }
+
+    @keyframes leviathan-badge {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .whale-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .whale-amount {
+      font-size: 32px;
+      font-weight: 800;
+      font-family: 'SF Mono', Monaco, monospace;
+      letter-spacing: -1px;
+    }
+
+    .whale-amount-unit {
+      font-size: 16px;
+      font-weight: 500;
+      opacity: 0.7;
+      margin-left: 6px;
+    }
+
+    .whale-tier-badge {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .whale-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .whale-detail {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .whale-detail-label {
+      font-size: 10px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .whale-detail-value {
+      font-family: 'SF Mono', Monaco, monospace;
+      color: #aaa;
+    }
+
+    .whale-detail-value a {
+      color: #aaa;
+      text-decoration: none;
+    }
+
+    .whale-detail-value a:hover {
+      color: #fff;
+    }
+
+    .whale-icon {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      font-size: 48px;
+      opacity: 0.15;
+    }
+
+    .whale-card.tier-leviathan .whale-icon {
+      opacity: 0.25;
+      animation: leviathan-icon 3s ease-in-out infinite;
+    }
+
+    @keyframes leviathan-icon {
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      50% { transform: scale(1.1) rotate(5deg); }
+    }
   </style>
 </head>
 <body>
@@ -533,8 +738,8 @@
   <div class="header">
     <h1>On-Chain Explorer</h1>
     <p class="subtitle">
-      Reading application data directly from BSV blocks. <em>No app API. No API key. No permission.</em>
-      Just a P2P bridge connected to the Bitcoin network.
+      Reading BSV blocks directly via P2P — social posts, digital artifacts, capital flow.
+      <em>No app API. No API key. No permission.</em> Just a bridge connected to the Bitcoin network.
     </p>
   </div>
 
@@ -553,7 +758,10 @@
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('treechat')">
+    <div class="tab active" onclick="switchTab('whales')">
+      Whales <span class="count" id="whaleCount">0</span>
+    </div>
+    <div class="tab" onclick="switchTab('treechat')">
       TreeChat <span class="count" id="treechatCount">0</span>
     </div>
     <div class="tab" onclick="switchTab('inscriptions')">
@@ -563,8 +771,22 @@
 
   <div class="content">
 
+    <!-- Whales Panel -->
+    <div class="panel active" id="panel-whales">
+      <div class="empty" id="whales-empty">
+        <p>Scan blocks to detect large value transfers.</p>
+        <p>Transactions moving 10+ BSV — capital flow read directly via P2P.</p>
+      </div>
+      <div id="whales-loading" class="loading" style="display:none;">
+        <div class="spinner"></div>
+        <div>Scanning for whale activity...</div>
+      </div>
+      <div id="whales-stats" class="whale-stats" style="display:none;"></div>
+      <div id="whales-feed" class="whale-feed"></div>
+    </div>
+
     <!-- TreeChat Panel -->
-    <div class="panel active" id="panel-treechat">
+    <div class="panel" id="panel-treechat">
       <div class="empty" id="treechat-empty">
         <p>Connect to your bridge and scan blocks to find TreeChat posts.</p>
         <p>Each post was written to the BSV blockchain — you're reading it via P2P.</p>
@@ -611,8 +833,8 @@
   </div>
 
   <div class="thesis">
-    <strong>The point:</strong> TreeChat is an app. But the data isn't trapped inside TreeChat.<br>
-    Inscriptions are minted through wallets. But they don't live in the wallet.<br>
+    <strong>The point:</strong> Apps write data to the blockchain — social posts, inscriptions, value transfers.
+    But that data isn't trapped inside those apps.<br>
     Everything here was read from <strong>BSV blocks via P2P</strong> — the underlying record can never be held hostage.
   </div>
 
@@ -622,6 +844,15 @@
   let showRawData = false
   let treechatPosts = []
   let inscriptions = []
+  let whales = []
+
+  // Whale thresholds in satoshis
+  const WHALE_THRESHOLDS = {
+    dolphin: 10_0000_0000,      // 10 BSV
+    whale: 100_0000_0000,       // 100 BSV
+    mega: 1000_0000_0000,       // 1,000 BSV
+    leviathan: 10000_0000_0000  // 10,000 BSV
+  }
 
   // --- Hex decode ---
   function hexToUtf8 (hex) {
@@ -650,7 +881,6 @@
   const PROTOCOL_PREFIXES = new Set([B_PREFIX_HEX, MAP_PREFIX_HEX, AIP_PREFIX_HEX])
 
   // Parse bSocial multi-protocol structure from OP_RETURN outputs
-  // Format: B:// fields | MAP fields | AIP fields (pipe-separated in one output)
   function parseBSocial (opReturns) {
     let content = null
     let contentType = null
@@ -674,54 +904,27 @@
       while (i < pushes.length) {
         const pushHex = pushes[i]
 
-        // Skip pipe separators between protocol sections
-        if (pushHex === PIPE_HEX) {
-          i++
-          continue
-        }
+        if (pushHex === PIPE_HEX) { i++; continue }
 
         const pushText = hexToUtf8(pushHex)
 
-        // --- B:// protocol ---
-        // Format: B_PREFIX | data | mediaType | encoding | [filename]
         if (pushHex === B_PREFIX_HEX || pushText === '19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut') {
-          i++ // skip prefix
-          // Read fields until we hit a pipe, another protocol prefix, or end
-          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
-            content = hexToUtf8(pushes[i])
-            i++
-          }
-          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
-            contentType = hexToUtf8(pushes[i])
-            i++
-          }
-          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) {
-            contentEncoding = hexToUtf8(pushes[i])
-            i++
-          }
+          i++
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) { content = hexToUtf8(pushes[i]); i++ }
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) { contentType = hexToUtf8(pushes[i]); i++ }
+          if (i < pushes.length && pushes[i] !== PIPE_HEX && !PROTOCOL_PREFIXES.has(pushes[i])) { contentEncoding = hexToUtf8(pushes[i]); i++ }
           continue
         }
 
-        // --- MAP protocol ---
-        // Format: MAP_PREFIX | SET | key | value | key | value | ...
         if (pushHex === MAP_PREFIX_HEX || pushText === '1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5') {
-          i++ // skip prefix
-          // Skip the action (SET, ADD, DELETE)
+          i++
           if (i < pushes.length) i++
-
-          // Read key-value pairs until pipe or protocol prefix
           while (i + 1 < pushes.length) {
-            // Stop at pipe separator or next protocol prefix
             if (pushes[i] === PIPE_HEX || PROTOCOL_PREFIXES.has(pushes[i])) break
-
             const key = hexToUtf8(pushes[i])
             const val = hexToUtf8(pushes[i + 1] || '')
-
             if (!key) { i++; continue }
-
             mapData[key] = val
-
-            // Extract well-known fields
             if (key === 'type') postType = val
             if (key === 'emoji') emoji = val
             if (key === 'tx') contextTxid = val
@@ -731,24 +934,15 @@
             if (key === 'treechat_created_at') timestamp = val
             if (key === 'treechat_thread_id') threadId = val
             if (key === 'treechat_msg_id') msgId = val
-
             i += 2
           }
           continue
         }
 
-        // --- AIP protocol ---
-        // Format: AIP_PREFIX | algorithm | signingAddress | signature
         if (pushHex === AIP_PREFIX_HEX || pushText === '15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva') {
-          i++ // skip prefix
-          // algorithm
+          i++
           if (i < pushes.length && pushes[i] !== PIPE_HEX) i++
-          // signing address
-          if (i < pushes.length && pushes[i] !== PIPE_HEX) {
-            signingAddress = hexToUtf8(pushes[i])
-            i++
-          }
-          // signature (skip)
+          if (i < pushes.length && pushes[i] !== PIPE_HEX) { signingAddress = hexToUtf8(pushes[i]); i++ }
           if (i < pushes.length && pushes[i] !== PIPE_HEX) i++
           continue
         }
@@ -757,31 +951,16 @@
       }
     }
 
-    // Use username as display name, fall back to author/paymail, then signing address
     const displayName = username || author || signingAddress || null
 
-    return {
-      content,
-      contentType,
-      contentEncoding,
-      mapData,
-      postType,
-      emoji,
-      contextTxid,
-      satAmount,
-      author: displayName,
-      username,
-      signingAddress,
-      timestamp,
-      threadId,
-      msgId
-    }
+    return { content, contentType, contentEncoding, mapData, postType, emoji, contextTxid, satAmount, author: displayName, username, signingAddress, timestamp, threadId, msgId }
   }
 
   // --- Tab switching ---
   function switchTab (tab) {
     document.querySelectorAll('.tab').forEach((t, i) => {
-      t.classList.toggle('active', (i === 0 && tab === 'treechat') || (i === 1 && tab === 'inscriptions'))
+      const tabs = ['whales', 'treechat', 'inscriptions']
+      t.classList.toggle('active', tabs[i] === tab)
     })
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'))
     document.getElementById('panel-' + tab).classList.add('active')
@@ -806,7 +985,24 @@
     }
   }
 
-  // --- TreeChat scanning ---
+  // --- Get whale tier ---
+  function getWhaleTier (satoshis) {
+    if (satoshis >= WHALE_THRESHOLDS.leviathan) return { tier: 'leviathan', label: 'Leviathan', icon: '🐋' }
+    if (satoshis >= WHALE_THRESHOLDS.mega) return { tier: 'mega', label: 'Mega Whale', icon: '🐳' }
+    if (satoshis >= WHALE_THRESHOLDS.whale) return { tier: 'whale', label: 'Whale', icon: '🐋' }
+    if (satoshis >= WHALE_THRESHOLDS.dolphin) return { tier: 'dolphin', label: 'Dolphin', icon: '🐬' }
+    return null
+  }
+
+  // --- Format BSV amount ---
+  function formatBSV (satoshis) {
+    const bsv = satoshis / 100_000_000
+    if (bsv >= 1000) return bsv.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    if (bsv >= 100) return bsv.toLocaleString(undefined, { maximumFractionDigits: 1 })
+    return bsv.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  }
+
+  // --- Scanning ---
   async function startScan () {
     bridgeUrl = document.getElementById('bridgeUrl').value.replace(/\/$/, '')
     const blockCount = parseInt(document.getElementById('blockCount').value) || 5
@@ -820,7 +1016,6 @@
     info.textContent = 'Connecting...'
 
     try {
-      // Check bridge
       const status = await checkBridge(bridgeUrl)
       dot.className = 'status-dot connected'
       const tipHeight = status.headers.bestHeight
@@ -828,32 +1023,49 @@
       const scanFrom = (customStart > 0 && customStart <= tipHeight) ? customStart : tipHeight
       info.textContent = `Height: ${tipHeight} | Peers: ${status.peers.connected}${customStart ? ' | Scanning from ' + scanFrom : ''}`
 
-      // Show loading for both panels
+      // Reset state
       document.getElementById('treechat-empty').style.display = 'none'
       document.getElementById('treechat-loading').style.display = 'block'
       document.getElementById('treechat-feed').innerHTML = ''
       document.getElementById('inscriptions-empty').style.display = 'none'
       document.getElementById('inscriptions-gallery').innerHTML = ''
+      document.getElementById('whales-empty').style.display = 'none'
+      document.getElementById('whales-loading').style.display = 'block'
+      document.getElementById('whales-stats').style.display = 'none'
+      document.getElementById('whales-feed').innerHTML = ''
       treechatPosts = []
       inscriptions = []
+      whales = []
 
-      // Scan blocks — one pass collects BOTH TreeChat posts and inscriptions
+      // Scan blocks
       for (let i = 0; i < blockCount; i++) {
         const h = scanFrom - i
-        document.getElementById('scan-progress').textContent =
-          `Block ${h} (${i + 1}/${blockCount})...`
+        document.getElementById('scan-progress').textContent = `Block ${h} (${i + 1}/${blockCount})...`
 
         try {
           const res = await fetch(`${bridgeUrl}/block/${h}/transactions`, { headers: getHeaders() })
           if (!res.ok) {
-            document.getElementById('scan-progress').textContent =
-              `Block ${h} (${i + 1}/${blockCount})... HTTP ${res.status} ${res.statusText}`
+            document.getElementById('scan-progress').textContent = `Block ${h} (${i + 1}/${blockCount})... HTTP ${res.status} ${res.statusText}`
             continue
           }
           const block = await res.json()
 
           for (const tx of block.transactions) {
             if (!tx.outputs) continue
+
+            // --- Whale detection ---
+            const totalOutput = tx.outputs.reduce((sum, o) => sum + (o.satoshis || 0), 0)
+            const tierInfo = getWhaleTier(totalOutput)
+            if (tierInfo) {
+              whales.push({
+                txid: tx.txid,
+                blockHeight: h,
+                satoshis: totalOutput,
+                ...tierInfo,
+                inputCount: tx.inputs?.length || 0,
+                outputCount: tx.outputs.length
+              })
+            }
 
             // --- TreeChat detection ---
             const hasTreeChat = tx.outputs.some(o =>
@@ -862,17 +1074,11 @@
             if (hasTreeChat) {
               const opReturns = tx.outputs.filter(o => o.type === 'op_return' && o.data)
               const parsed = parseBSocial(opReturns)
-              treechatPosts.push({
-                txid: tx.txid,
-                blockHeight: h,
-                ...parsed,
-                rawOutputs: opReturns
-              })
+              treechatPosts.push({ txid: tx.txid, blockHeight: h, ...parsed, rawOutputs: opReturns })
             }
 
             // --- Inscription detection ---
             const outputCount = tx.outputs.length
-            // Collect companion OP_RETURN metadata from the same tx
             const companionMeta = tx.outputs
               .filter(o => o.type === 'op_return' && o.data)
               .map(o => o.data.map(hexToUtf8).join(' '))
@@ -895,15 +1101,20 @@
             }
           }
         } catch (blockErr) {
-            document.getElementById('scan-progress').textContent =
-              `Block ${h} (${i + 1}/${blockCount})... Error: ${blockErr.message}`
-          }
+          document.getElementById('scan-progress').textContent = `Block ${h} (${i + 1}/${blockCount})... Error: ${blockErr.message}`
+        }
       }
 
-      // Render both tabs
+      // Sort whales by size (biggest first)
+      whales.sort((a, b) => b.satoshis - a.satoshis)
+
+      // Update counts & render
       document.getElementById('treechat-loading').style.display = 'none'
+      document.getElementById('whales-loading').style.display = 'none'
       document.getElementById('treechatCount').textContent = treechatPosts.length
       document.getElementById('inscriptionCount').textContent = inscriptions.length
+      document.getElementById('whaleCount').textContent = whales.length
+      renderWhales()
       renderTreeChat()
       renderInscriptions()
 
@@ -911,13 +1122,90 @@
       dot.className = 'status-dot error'
       info.textContent = err.message
       document.getElementById('treechat-loading').style.display = 'none'
+      document.getElementById('whales-loading').style.display = 'none'
       document.getElementById('treechat-empty').style.display = 'block'
-      document.getElementById('treechat-empty').innerHTML =
-        `<p style="color:#ef4444;">${err.message}</p><p>Check your bridge URL and try again.</p>`
+      document.getElementById('whales-empty').style.display = 'block'
+      document.getElementById('treechat-empty').innerHTML = `<p style="color:#ef4444;">${err.message}</p><p>Check your bridge URL and try again.</p>`
+      document.getElementById('whales-empty').innerHTML = `<p style="color:#ef4444;">${err.message}</p>`
     } finally {
       btn.disabled = false
       btn.textContent = 'Scan'
     }
+  }
+
+  // --- Render Whales ---
+  function renderWhales () {
+    const feed = document.getElementById('whales-feed')
+    const stats = document.getElementById('whales-stats')
+    const empty = document.getElementById('whales-empty')
+
+    if (whales.length === 0) {
+      empty.style.display = 'block'
+      empty.innerHTML = `
+        <p>No whale transactions found in these blocks.</p>
+        <p>Whales are transactions moving 10+ BSV.</p>
+        <p style="margin-top:16px; color:#444;">
+          Try scanning more blocks or a different range.
+        </p>`
+      stats.style.display = 'none'
+      return
+    }
+
+    empty.style.display = 'none'
+    stats.style.display = 'grid'
+
+    // Calculate stats
+    const totalVolume = whales.reduce((sum, w) => sum + w.satoshis, 0)
+    const tierCounts = { dolphin: 0, whale: 0, mega: 0, leviathan: 0 }
+    whales.forEach(w => tierCounts[w.tier]++)
+    const biggestWhale = whales[0]
+
+    stats.innerHTML = `
+      <div class="whale-stat">
+        <div class="whale-stat-value highlight">${formatBSV(totalVolume)}</div>
+        <div class="whale-stat-label">Total BSV Moved</div>
+      </div>
+      <div class="whale-stat">
+        <div class="whale-stat-value">${whales.length}</div>
+        <div class="whale-stat-label">Whale Txs</div>
+      </div>
+      <div class="whale-stat">
+        <div class="whale-stat-value">${tierCounts.leviathan + tierCounts.mega}</div>
+        <div class="whale-stat-label">Mega+ Whales</div>
+      </div>
+      <div class="whale-stat">
+        <div class="whale-stat-value">${formatBSV(biggestWhale.satoshis)}</div>
+        <div class="whale-stat-label">Largest Tx</div>
+      </div>
+    `
+
+    feed.innerHTML = whales.map(w => `
+      <div class="whale-card tier-${w.tier}">
+        <div class="whale-header">
+          <div class="whale-amount">
+            ${formatBSV(w.satoshis)}<span class="whale-amount-unit">BSV</span>
+          </div>
+          <div class="whale-tier-badge">${w.icon} ${w.label}</div>
+        </div>
+        <div class="whale-details">
+          <div class="whale-detail">
+            <div class="whale-detail-label">Block</div>
+            <div class="whale-detail-value">${w.blockHeight.toLocaleString()}</div>
+          </div>
+          <div class="whale-detail">
+            <div class="whale-detail-label">Structure</div>
+            <div class="whale-detail-value">${w.inputCount} in → ${w.outputCount} out</div>
+          </div>
+          <div class="whale-detail" style="grid-column: span 2;">
+            <div class="whale-detail-label">Transaction</div>
+            <div class="whale-detail-value">
+              <a href="https://whatsonchain.com/tx/${w.txid}" target="_blank" rel="noopener">${w.txid.slice(0, 20)}...${w.txid.slice(-8)}</a>
+            </div>
+          </div>
+        </div>
+        <div class="whale-icon">${w.icon}</div>
+      </div>
+    `).join('')
   }
 
   function renderTreeChat () {
@@ -937,76 +1225,41 @@
     }
 
     feed.innerHTML = treechatPosts.map(post => {
-      // Determine what kind of activity this is
       const type = post.postType || 'post'
       const isReaction = ['like', 'upvote', 'vote', 'tip', 'boost', 'repost'].includes(type.toLowerCase())
       const isPost = type.toLowerCase() === 'post'
-      const isReply = isPost && post.contextTxid  // a "post" with a context tx is actually a reply
-      const isTopLevel = isPost && !post.contextTxid
+      const isReply = isPost && post.contextTxid
 
-      // Friendly label for the action
-      const actionLabels = {
-        'like': 'upvoted',
-        'upvote': 'upvoted',
-        'boost': 'boosted',
-        'tip': 'tipped',
-        'repost': 'reposted',
-        'reply': 'replied',
-        'comment': 'commented',
-        'post': isReply ? 'replied' : 'posted'
-      }
+      const actionLabels = { 'like': 'upvoted', 'upvote': 'upvoted', 'boost': 'boosted', 'tip': 'tipped', 'repost': 'reposted', 'reply': 'replied', 'comment': 'commented', 'post': isReply ? 'replied' : 'posted' }
       const actionLabel = actionLabels[type.toLowerCase()] || type
 
-      // Type badge styling
       const typeBadge = isReaction
         ? `<span class="type-badge reaction">${post.emoji || '👍'} ${escapeHtml(actionLabel)}</span>`
         : isReply
           ? `<span class="type-badge reply">${escapeHtml(actionLabel)}</span>`
           : `<span class="type-badge">${escapeHtml(actionLabel)}</span>`
 
-      // Sat amount for upvotes/tips
-      const satInfo = post.satAmount
-        ? `<span class="sat-amount">${Number(post.satAmount).toLocaleString()} sats</span>`
-        : ''
+      const satInfo = post.satAmount ? `<span class="sat-amount">${Number(post.satAmount).toLocaleString()} sats</span>` : ''
+      const authorInfo = post.author ? `<span class="author">${escapeHtml(post.author)}</span>` : ''
 
-      // Author — show username prominently
-      const authorInfo = post.author
-        ? `<span class="author">${escapeHtml(post.author)}</span>`
-        : ''
-
-      // Timestamp — use treechat_created_at if available
       let timeInfo = ''
       if (post.timestamp) {
-        try {
-          const d = new Date(post.timestamp)
-          timeInfo = `<span style="font-size:11px; color:#555;">${d.toLocaleString()}</span>`
-        } catch { }
+        try { timeInfo = `<span style="font-size:11px; color:#555;">${new Date(post.timestamp).toLocaleString()}</span>` } catch {}
       }
 
-      // Main content
-      const mainContent = post.content || ''
-      const contentHtml = mainContent
-        ? `<div class="post-content">${escapeHtml(mainContent)}</div>`
-        : ''
+      const contentHtml = post.content ? `<div class="post-content">${escapeHtml(post.content)}</div>` : ''
 
-      // Context (replying to / reacting to another tx)
       let contextHtml = ''
       if (post.contextTxid) {
         const verb = isReaction ? `${post.emoji || '👍'} ${actionLabel}` : '↩ replied to'
         contextHtml = `<div class="post-context">${verb} <a href="https://whatsonchain.com/tx/${post.contextTxid}" target="_blank" rel="noopener">${post.contextTxid.slice(0, 16)}...</a></div>`
       }
 
-      // MAP metadata (show all decoded key-value pairs)
       const mapEntries = Object.entries(post.mapData || {})
       const mapHtml = mapEntries.length > 0
-        ? mapEntries.map(([k, v]) => `
-            <div class="push-item">
-              <span class="label">${escapeHtml(k)}</span>
-              ${escapeHtml(v)}
-            </div>`).join('')
+        ? mapEntries.map(([k, v]) => `<div class="push-item"><span class="label">${escapeHtml(k)}</span> ${escapeHtml(v)}</div>`).join('')
         : ''
 
-      // Raw push data
       const rawHtml = (post.rawOutputs || []).map((output, oi) =>
         (output.data || []).map((hex, pi) => {
           const text = hexToUtf8(hex)
@@ -1030,9 +1283,7 @@
             tx: <a href="https://whatsonchain.com/tx/${post.txid}" target="_blank" rel="noopener">${post.txid}</a>
           </div>
           <div class="post-pushes">
-            <span class="raw-toggle" onclick="toggleRaw(this)">
-              [show decoded fields]
-            </span>
+            <span class="raw-toggle" onclick="toggleRaw(this)">[show decoded fields]</span>
             <div class="raw-data" style="display:none; margin-top:8px;">
               <div style="margin-bottom:8px; color:#666; font-size:11px;">MAP metadata:</div>
               ${mapHtml || '<div class="push-item"><span class="label">—</span> no MAP fields decoded</div>'}
@@ -1051,13 +1302,11 @@
     el.textContent = showing ? '[show decoded fields]' : '[hide decoded fields]'
   }
 
-  // --- Inscriptions (scanned from blocks via P2P, same as TreeChat) ---
   function renderInscriptions () {
     const gallery = document.getElementById('inscriptions-gallery')
     const empty = document.getElementById('inscriptions-empty')
     const mime = document.getElementById('mimeFilter').value
 
-    // Apply MIME filter client-side
     let filtered
     if (mime === 'no-bsv20') {
       filtered = inscriptions.filter(i => !i.isBsv20)
@@ -1083,29 +1332,22 @@
       const declaredText = insc.contentType && insc.contentType.startsWith('text/')
       const declaredHtml = insc.contentType && insc.contentType.split(';')[0].trim() === 'text/html'
       const contentBytes = insc.content ? insc.content.length / 2 : 0
-      const sizeStr = contentBytes > 1024
-        ? (contentBytes / 1024).toFixed(1) + ' KB'
-        : contentBytes + ' B'
+      const sizeStr = contentBytes > 1024 ? (contentBytes / 1024).toFixed(1) + ' KB' : contentBytes + ' B'
 
-      // Detect actual HTML content even if MIME says text/plain
       let textContent = ''
       let looksLikeHtml = declaredHtml
       if (insc.content && (declaredText || !isImage)) {
         textContent = hexToUtf8(insc.content)
         if (!looksLikeHtml) {
           const trimmed = textContent.trimStart().toLowerCase()
-          looksLikeHtml = trimmed.startsWith('<!doctype') ||
-                          trimmed.startsWith('<html') ||
-                          trimmed.startsWith('<svg') ||
+          looksLikeHtml = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html') || trimmed.startsWith('<svg') ||
                           (trimmed.startsWith('<head') && trimmed.includes('<body')) ||
                           (trimmed.includes('<canvas') && trimmed.includes('<script'))
         }
       }
 
-      // Detect 3DOrdi or other collection tags from companion OP_RETURN
       const meta = insc.companionMeta || ''
-      const is3DOrdi = meta.toLowerCase().includes('3dordi') ||
-                       textContent.toLowerCase().includes('3dordi')
+      const is3DOrdi = meta.toLowerCase().includes('3dordi') || textContent.toLowerCase().includes('3dordi')
 
       let preview = ''
       if (isImage && insc.content) {
@@ -1114,7 +1356,6 @@
         const url = URL.createObjectURL(blob)
         preview = `<img src="${url}" loading="lazy" alt="inscription">`
       } else if (looksLikeHtml && insc.content) {
-        // HTML inscription — render a sandboxed thumbnail iframe
         preview = `<iframe class="html-preview-frame" sandbox="allow-scripts" srcdoc="${escapeAttr(textContent)}" loading="lazy" scrolling="no"></iframe>`
       } else if (declaredText && insc.content) {
         preview = `<div class="placeholder" style="text-align:left; font-size:11px; white-space:pre-wrap; overflow:hidden;">${escapeHtml(textContent.slice(0, 300))}</div>`
@@ -1125,19 +1366,10 @@
         preview = `<div class="placeholder">${insc.contentType || 'unknown'}<br>${sizeStr}</div>`
       }
 
-      // Badges
-      const mimeMismatch = looksLikeHtml && !declaredHtml
-        ? `<span class="inscription-badge badge-html">HTML detected</span>` : ''
-      const threeDOrdiBadge = is3DOrdi
-        ? `<span class="inscription-badge badge-3d">3DOrdi</span>` : ''
-
-      // Preview button for HTML inscriptions
-      const previewBtn = looksLikeHtml
-        ? `<button class="preview-btn" onclick="openHtmlPreview(${idx})">Open full preview</button>` : ''
-
-      // Multi-output info
-      const outputInfo = insc.outputCount > 2
-        ? `<div class="output-count">${insc.outputCount} outputs (inscription + metadata)</div>` : ''
+      const mimeMismatch = looksLikeHtml && !declaredHtml ? `<span class="inscription-badge badge-html">HTML detected</span>` : ''
+      const threeDOrdiBadge = is3DOrdi ? `<span class="inscription-badge badge-3d">3DOrdi</span>` : ''
+      const previewBtn = looksLikeHtml ? `<button class="preview-btn" onclick="openHtmlPreview(${idx})">Open full preview</button>` : ''
+      const outputInfo = insc.outputCount > 2 ? `<div class="output-count">${insc.outputCount} outputs (inscription + metadata)</div>` : ''
 
       return `
         <div class="inscription-card" data-idx="${idx}">
@@ -1156,7 +1388,6 @@
     }).join('')
   }
 
-  // --- Utils ---
   function escapeHtml (str) {
     const div = document.createElement('div')
     div.textContent = str
@@ -1167,9 +1398,7 @@
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   }
 
-  // Open HTML inscription in a full-screen sandboxed modal
   function openHtmlPreview (idx) {
-    // Get the current filtered list based on active filter
     const mime = document.getElementById('mimeFilter').value
     let filtered
     if (mime === 'no-bsv20') {
@@ -1206,7 +1435,6 @@
     overlay.appendChild(modal)
     document.body.appendChild(overlay)
 
-    // Close on Escape
     const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey) } }
     document.addEventListener('keydown', onKey)
   }

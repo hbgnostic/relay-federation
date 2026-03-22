@@ -1373,7 +1373,7 @@ export class StatusServer {
         // WoC fallback for older txs + block heights (skipped in p2p mode)
         if (!p2pOnly) {
           try {
-            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/history', { signal: AbortSignal.timeout(10000) })
             if (resp.ok) {
               const data = await resp.json()
               const wocHistory = Array.isArray(data) ? data : (data.result || [])
@@ -1391,11 +1391,13 @@ export class StatusServer {
         }
 
         // Shorter cache for p2p mode (5s vs 60s) since we're checking live mempool
-        const cacheTtl = p2pOnly ? 5000 : 60000
-        this._addressCache.set(cacheKey, { data: history, time: Date.now() })
-        if (this._addressCache.size > 100) {
-          const oldest = this._addressCache.keys().next().value
-          this._addressCache.delete(oldest)
+        // Only cache non-empty results — empty results should retry immediately
+        if (history.length > 0) {
+          this._addressCache.set(cacheKey, { data: history, time: Date.now() })
+          if (this._addressCache.size > 100) {
+            const oldest = this._addressCache.keys().next().value
+            this._addressCache.delete(oldest)
+          }
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ address: addr, history, cached: false, p2p: p2pOnly }))
@@ -1965,7 +1967,7 @@ export class StatusServer {
         // WoC fallback for older txs + block heights (skipped in p2p mode)
         if (!p2pOnly) {
           try {
-            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/confirmed/history', { signal: AbortSignal.timeout(10000) })
+            const resp = await fetch('https://api.whatsonchain.com/v1/bsv/main/address/' + addr + '/history', { signal: AbortSignal.timeout(10000) })
             if (resp.ok) {
               const data = await resp.json()
               const wocHistory = Array.isArray(data) ? data : (data.result || [])
@@ -1982,10 +1984,13 @@ export class StatusServer {
           } catch {} // WoC failure doesn't block response
         }
 
-        this._addressCache.set(cacheKey, { data: history, time: Date.now() })
-        if (this._addressCache.size > 100) {
-          const oldest = this._addressCache.keys().next().value
-          this._addressCache.delete(oldest)
+        // Only cache non-empty results — empty results should retry immediately
+        if (history.length > 0) {
+          this._addressCache.set(cacheKey, { data: history, time: Date.now() })
+          if (this._addressCache.size > 100) {
+            const oldest = this._addressCache.keys().next().value
+            this._addressCache.delete(oldest)
+          }
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(history))
