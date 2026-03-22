@@ -1,0 +1,18 @@
+{
+  "name": "p2p-paygate",
+  "version": "0.1.0",
+  "description": "Pay-per-view content gate using BSV relay bridge for P2P payment detection",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^1.10.1",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
