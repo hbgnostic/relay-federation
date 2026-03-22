@@ -72,6 +72,16 @@ export class BSVNodeClient extends EventEmitter {
     // Track best height across all peers
     this._bestHeight = this._checkpoint.height
     this._bestHash = this._checkpoint.hash
+
+    // Shared header store — all peers reference these instead of creating their own
+    this._sharedHeaderHashes = new Map()
+    this._sharedHashToHeight = new Map()
+    this._sharedHeaderHashes.set(this._checkpoint.height, this._checkpoint.hash)
+    this._sharedHashToHeight.set(this._checkpoint.hash, this._checkpoint.height)
+    if (this._checkpoint.prevHash) {
+      this._sharedHeaderHashes.set(this._checkpoint.height - 1, this._checkpoint.prevHash)
+      this._sharedHashToHeight.set(this._checkpoint.prevHash, this._checkpoint.height - 1)
+    }
   }
 
   /**
@@ -202,6 +212,21 @@ export class BSVNodeClient extends EventEmitter {
     return Promise.reject(new Error(
       `failed to fetch block ${blockHash.slice(0, 16)}... after ${maxAttempts} attempts: ${errors.join('; ')}`
     ))
+  }
+
+  /**
+   * Fetch a transaction from a specific peer (the one that announced it via inv).
+   * Falls back to any connected peer if the target peer is unavailable.
+   * @param {import('./bsv-peer.js').BSVPeer} peer
+   * @param {string} txid
+   * @param {number} [timeoutMs=5000]
+   * @returns {Promise<{ txid, rawHex }>}
+   */
+  getTxFromPeer (peer, txid, timeoutMs = 5000) {
+    if (peer && peer._handshakeComplete) {
+      return peer.getTx(txid, timeoutMs)
+    }
+    return this.getTx(txid, timeoutMs)
   }
 
   /**
@@ -338,7 +363,9 @@ export class BSVNodeClient extends EventEmitter {
     const peer = new BSVPeer({
       checkpoint: this._checkpoint,
       syncIntervalMs: this._syncIntervalMs,
-      pingIntervalMs: this._pingIntervalMs
+      pingIntervalMs: this._pingIntervalMs,
+      headerHashes: this._sharedHeaderHashes,
+      hashToHeight: this._sharedHashToHeight
     })
 
     this._peers.set(host, peer)

@@ -1,12 +1,15 @@
+import os from 'node:os'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import https from 'node:https'
 import { parseTx } from './output-parser.js'
 import { scanAddress } from './address-scanner.js'
 import { handlePostData, handleGetTopics, handleGetData } from './data-endpoints.js'
+import { createPaymentGate } from './x402-middleware.js'
+import { handleWellKnownX402 } from './x402-endpoints.js'
 
 /**
  * StatusServer — public-facing HTTP server exposing bridge status and APIs.
@@ -93,6 +96,44 @@ export class StatusServer {
         try { this._appBridgeDomains.add(new URL(app.url).hostname) } catch {}
       }
     }
+
+    // x402 payment gate
+    this._paymentGate = null
+    if (this._config.x402?.enabled && this._config.x402?.payTo && this._store) {
+      try {
+        const fetchTx = async (txid, opts) => {
+          // Check mempool first
+          if (this._txRelay?.mempool.has(txid)) {
+            const raw = this._txRelay.mempool.get(txid)
+            const p = parseTx(raw)
+            return { txid: p.txid, vout: p.outputs.map(o => ({ satoshis: o.satoshis, scriptPubKey: { hex: o.scriptHex } })) }
+          }
+          // Try BSV P2P
+          if (this._bsvNodeClient) {
+            try {
+              const { rawHex } = await this._bsvNodeClient.getTx(txid, 5000)
+              const p = parseTx(rawHex)
+              return { txid: p.txid, vout: p.outputs.map(o => ({ satoshis: o.satoshis, scriptPubKey: { hex: o.scriptHex } })) }
+            } catch {}
+          }
+          // WoC fallback
+          const resp = await fetch(
+            `https://api.whatsonchain.com/v1/bsv/main/tx/${txid}`,
+            { signal: opts?.signal || AbortSignal.timeout(5000) }
+          )
+          if (!resp.ok) {
+            const err = new Error(`WoC ${resp.status}`)
+            err.httpStatus = resp.status
+            throw err
+          }
+          return await resp.json()
+        }
+        this._paymentGate = createPaymentGate(this._config, this._store, fetchTx)
+        this._store.cleanupStaleClaims().catch(() => {})
+      } catch (err) {
+        console.error('[x402] Failed to create payment gate:', err.message)
+      }
+    }
   }
 
   /**
@@ -149,12 +190,25 @@ export class StatusServer {
       },
       txs: {
         mempool: this._txRelay ? this._txRelay.mempool.size : 0,
+        known: this._txRelay ? this._txRelay.knownTxids.size : 0,
         seen: this._txRelay ? this._txRelay.seen.size : 0
       },
       bsvNode: {
         connected: this._bsvNodeClient ? this._bsvNodeClient.connectedCount > 0 : false,
         peers: this._bsvNodeClient ? this._bsvNodeClient.connectedCount : 0,
         height: this._bsvNodeClient ? this._bsvNodeClient.bestHeight : null
+      },
+      system: {
+        totalMemMB: Math.round(os.totalmem() / 1048576),
+        freeMemMB: Math.round(os.freemem() / 1048576),
+        usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
+        processRssMB: Math.round(process.memoryUsage.rss() / 1048576),
+        cpuCount: os.cpus().length,
+        loadAvg: os.loadavg().map(v => Math.round(v * 100) / 100),
+        platform: os.platform(),
+        arch: os.arch(),
+        nodeVersion: process.version,
+        osUptime: Math.floor(os.uptime())
       }
     }
 
@@ -446,7 +500,7 @@ export class StatusServer {
       this._server = createServer((req, res) => {
         // CORS headers for federation dashboard
         res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS')
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
         if (req.method === 'OPTIONS') {
@@ -504,8 +558,6 @@ export class StatusServer {
     }
 
     // Rate limiting (only for heavy endpoints, skip for authenticated requests)
-    // Lightweight endpoints (dashboard, status, logs) are always allowed - matches Ryan's public design
-    // Heavy endpoints (block scanning, transaction fetching) are rate limited to prevent abuse
     if (!authenticated && this._isHeavyEndpoint(path)) {
       const rateCheck = this._checkRateLimit(req, path)
       if (!rateCheck.allowed) {
@@ -520,6 +572,23 @@ export class StatusServer {
         }))
         return
       }
+    }
+
+    // GET /.well-known/x402 — pricing discovery (always free)
+    if (req.method === 'GET' && path === '/.well-known/x402') {
+      handleWellKnownX402(this._config, PKG_VERSION, res)
+      return
+    }
+
+    // x402 payment gate — authenticated (operator) requests bypass
+    if (this._paymentGate && !authenticated) {
+      const result = await this._paymentGate(req.method, path, req)
+      if (!result.ok) {
+        res.writeHead(result.status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(result.body))
+        return
+      }
+      if (result.receipt) req._x402Receipt = result.receipt
     }
 
     // GET /status — public or operator status
@@ -581,6 +650,24 @@ export class StatusServer {
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // GET /mempool/known/:txid — fast check if txid was seen on the BSV network
+    const knownMatch = path.match(/^\/mempool\/known\/([0-9a-f]{64})$/)
+    if (req.method === 'GET' && knownMatch) {
+      const txid = knownMatch[1]
+      if (this._txRelay && this._txRelay.mempool.has(txid)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ known: true, source: 'mempool' }))
+      } else if (this._txRelay && this._txRelay.knownTxids.has(txid)) {
+        const firstSeen = this._txRelay.knownTxids.get(txid)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ known: true, source: 'inv', firstSeen }))
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ known: false }))
       }
       return
     }
@@ -1586,6 +1673,147 @@ export class StatusServer {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ apps }))
+      return
+    }
+
+    // GET /x402 — payment gate stats (operator-only details when authenticated)
+    if (req.method === 'GET' && path === '/x402') {
+      const x402Config = this._config.x402 || {}
+      const enabled = !!(x402Config.enabled && x402Config.payTo)
+      const result = {
+        enabled,
+        payTo: x402Config.payTo || '',
+        endpoints: []
+      }
+
+      // Build pricing table
+      if (x402Config.endpoints) {
+        for (const [key, satoshis] of Object.entries(x402Config.endpoints)) {
+          const colonIdx = key.indexOf(':')
+          if (colonIdx === -1) continue
+          result.endpoints.push({
+            method: key.slice(0, colonIdx),
+            path: key.slice(colonIdx + 1),
+            satoshis
+          })
+        }
+      }
+
+      // Read receipts from LevelDB if store is available
+      if (this._store && this._store._paymentReceipts) {
+        let totalReceipts = 0
+        let totalSatsEarned = 0n
+        let pendingClaims = 0
+        const recentReceipts = []
+        const now = Date.now()
+        const oneDayAgo = now - 86400000
+        const oneWeekAgo = now - 604800000
+        let todaySats = 0n
+        let weekSats = 0n
+
+        try {
+          for await (const [key, val] of this._store._paymentReceipts.iterator({ gte: 'u!', lt: 'u~' })) {
+            if (val.status === 'receipt') {
+              totalReceipts++
+              const paid = BigInt(val.satoshisPaid || val.satoshisRequired || '0')
+              totalSatsEarned += paid
+              if (val.createdAt && val.createdAt > oneDayAgo) todaySats += paid
+              if (val.createdAt && val.createdAt > oneWeekAgo) weekSats += paid
+              if (recentReceipts.length < 20) {
+                recentReceipts.push({
+                  txid: val.txid || key.slice(2),
+                  satoshisPaid: (val.satoshisPaid || val.satoshisRequired || '0'),
+                  endpoint: val.endpointKey || val.endpoint || '',
+                  createdAt: val.createdAt || null
+                })
+              }
+            } else if (val.status === 'claimed') {
+              pendingClaims++
+            }
+          }
+        } catch {}
+
+        result.revenue = {
+          totalReceipts,
+          totalSatsEarned: totalSatsEarned.toString(),
+          todaySats: todaySats.toString(),
+          weekSats: weekSats.toString(),
+          pendingClaims
+        }
+        if (authenticated) {
+          result.recentReceipts = recentReceipts.reverse()
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(result))
+      return
+    }
+
+    // PATCH /x402 — update x402 settings (operator-only)
+    if (req.method === 'PATCH' && path === '/x402') {
+      if (!authenticated) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unauthorized' }))
+        return
+      }
+
+      try {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+
+        // Update in-memory config
+        if (!this._config.x402) this._config.x402 = {}
+        if (body.enabled !== undefined) this._config.x402.enabled = !!body.enabled
+        if (body.payTo !== undefined) this._config.x402.payTo = String(body.payTo)
+        if (body.endpoints !== undefined && typeof body.endpoints === 'object') {
+          // Validate all prices are non-negative safe integers
+          for (const [key, price] of Object.entries(body.endpoints)) {
+            if (!Number.isSafeInteger(price) || price < 0) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: `Invalid price for ${key}: must be a non-negative integer` }))
+              return
+            }
+          }
+          this._config.x402.endpoints = body.endpoints
+        }
+
+        // Write config to disk
+        const configDir = this._config.dataDir ? dirname(this._config.dataDir) : join(os.homedir(), '.relay-bridge')
+        const configPath = join(configDir, 'config.json')
+        writeFileSync(configPath, JSON.stringify(this._config, null, 2))
+
+        // Recreate payment gate with new settings
+        if (this._config.x402.enabled && this._config.x402.payTo && this._store) {
+          try {
+            const fetchTx = async (txid, opts) => {
+              const resp = await fetch(
+                `https://api.whatsonchain.com/v1/bsv/main/tx/${txid}`,
+                { signal: opts?.signal || AbortSignal.timeout(5000) }
+              )
+              if (!resp.ok) {
+                const err = new Error(`WoC ${resp.status}`)
+                err.httpStatus = resp.status
+                throw err
+              }
+              return await resp.json()
+            }
+            this._paymentGate = createPaymentGate(this._config, this._store, fetchTx)
+          } catch (err) {
+            console.error('[x402] Failed to recreate payment gate:', err.message)
+            this._paymentGate = null
+          }
+        } else {
+          this._paymentGate = null
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, x402: this._config.x402 }))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
       return
     }
 

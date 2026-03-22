@@ -44,6 +44,7 @@ export class PersistentStore extends EventEmitter {
     this._tokens = null
     this._mempool = null
     this._sessions = null
+    this._paymentReceipts = null
     this._contentDir = join(dataDir, 'content')
   }
 
@@ -65,6 +66,7 @@ export class PersistentStore extends EventEmitter {
     this._tokens = this.db.sublevel('tokens', { valueEncoding: 'json' })
     this._mempool = this.db.sublevel('mempool', { valueEncoding: 'json' })
     this._sessions = this.db.sublevel('sessions', { valueEncoding: 'json' })
+    this._paymentReceipts = this.db.sublevel('payment_receipts', { valueEncoding: 'json' })
     await mkdir(this._contentDir, { recursive: true })
     this.emit('open')
   }
@@ -847,6 +849,76 @@ export class PersistentStore extends EventEmitter {
     let count = 0
     for await (const _ of this._inscriptions.keys()) count++
     return count
+  }
+
+  // ── x402 Payment Receipts ──────────────────────────────
+
+  /**
+   * Atomic claim — put-if-absent. Returns { ok: true } if claimed,
+   * { ok: false } if txid already exists (replay blocked).
+   */
+  async claimTxid (txid, { routeKey, price, createdAt }) {
+    const key = `u!${txid}`
+    try {
+      await this._paymentReceipts.put(key,
+        { status: 'claimed', routeKey, price, createdAt },
+        { ifNotExists: true })
+      return { ok: true }
+    } catch (err) {
+      if (err.code !== 'LEVEL_KEY_EXISTS' && err?.cause?.code !== 'LEVEL_KEY_EXISTS')
+        console.error(`[x402] unexpected claimTxid error for ${txid}:`, err.message)
+      return { ok: false }
+    }
+  }
+
+  /**
+   * Release a claim (verification failed). Only deletes if status is 'claimed'.
+   * Never deletes receipts — finalized payments are permanent.
+   */
+  async releaseClaim (txid) {
+    const key = `u!${txid}`
+    try {
+      const val = await this._paymentReceipts.get(key)
+      if (val && val.status === 'claimed') await this._paymentReceipts.del(key)
+    } catch {}
+  }
+
+  /**
+   * Promote claim to permanent receipt. Overwrites in-place — key is
+   * NEVER deleted after this, blocking replay permanently.
+   */
+  async finalizePayment (txid, receipt) {
+    await this._paymentReceipts.put(`u!${txid}`, { ...receipt, status: 'receipt' })
+  }
+
+  /**
+   * Startup sweep — delete stale claims older than maxAgeMs (default 5 min).
+   * Only touches status === 'claimed' keys. Receipts are untouched.
+   */
+  async cleanupStaleClaims (maxAgeMs = 300000) {
+    const now = Date.now()
+    for await (const [key, val] of this._paymentReceipts.iterator({ gte: 'u!', lt: 'u~' })) {
+      if (val.status !== 'claimed') continue
+      if (!val.createdAt || (now - val.createdAt) > maxAgeMs)
+        await this._paymentReceipts.del(key)
+    }
+  }
+
+  /**
+   * Prune old receipts — chunked batch deletes for receipts older than N months.
+   */
+  async pruneOldReceipts (monthsToKeep = 6) {
+    const cutoffMs = Date.now() - (monthsToKeep * 30 * 24 * 60 * 60 * 1000)
+    const CHUNK = 500
+    let ops = []
+    for await (const [key, val] of this._paymentReceipts.iterator({ gte: 'u!', lt: 'u~' })) {
+      if (val.status !== 'receipt') continue
+      if (val.createdAt && val.createdAt < cutoffMs) {
+        ops.push({ type: 'del', key })
+        if (ops.length >= CHUNK) { await this._paymentReceipts.batch(ops); ops = [] }
+      }
+    }
+    if (ops.length > 0) await this._paymentReceipts.batch(ops)
   }
 }
 

@@ -32,6 +32,11 @@ export class TxRelay extends EventEmitter {
     this.seen = new Set()
     this._maxMempool = opts.maxMempool || 1000
 
+    /** @type {Map<string, number>} txid → timestamp first seen via BSV P2P inv */
+    this.knownTxids = new Map()
+    this._knownTxidMax = opts.maxKnownTxids || 50000
+    this._knownTxidTtlMs = opts.knownTxidTtlMs || 600000 // 10 min
+
     this.peerManager.on('peer:message', ({ pubkeyHex, message }) => {
       this._handleMessage(pubkeyHex, message)
     })
@@ -58,6 +63,30 @@ export class TxRelay extends EventEmitter {
    */
   getTx (txid) {
     return this.mempool.get(txid) || null
+  }
+
+  /**
+   * Record a txid as "seen on the BSV network" without storing the full tx.
+   * @param {string} txid
+   */
+  trackTxid (txid) {
+    if (this.knownTxids.has(txid)) return
+    this.knownTxids.set(txid, Date.now())
+    if (this.knownTxids.size > this._knownTxidMax) {
+      const now = Date.now()
+      for (const [id, ts] of this.knownTxids) {
+        if (now - ts > this._knownTxidTtlMs) this.knownTxids.delete(id)
+      }
+    }
+  }
+
+  /**
+   * Check if we've seen a txid on the network (inv or mempool).
+   * @param {string} txid
+   * @returns {boolean}
+   */
+  hasSeen (txid) {
+    return this.seen.has(txid) || this.knownTxids.has(txid)
   }
 
   /** @private */

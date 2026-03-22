@@ -759,13 +759,10 @@ async function cmdStart () {
     }
   })
 
-  // Auto-detect incoming payments: request txs announced via INV
+  // Track txids announced via BSV P2P inv (lightweight, no full tx fetch)
   bsvNode.on('tx:inv', ({ txids }) => {
     for (const txid of txids) {
-      if (txRelay.seen.has(txid)) continue
-      bsvNode.getTx(txid, 10000).then(({ txid: id, rawHex }) => {
-        txRelay.broadcastTx(id, rawHex)
-      }).catch(() => {}) // ignore fetch failures
+      txRelay.trackTxid(txid)
     }
   })
 
