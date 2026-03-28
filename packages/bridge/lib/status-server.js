@@ -958,7 +958,14 @@ export class StatusServer {
     // GET /block/:height/transactions — fetch full block with all parsed transactions via P2P
     // Streams as NDJSON (newline-delimited JSON) for memory efficiency with large blocks
     // First line is header metadata, subsequent lines are individual transactions
+    // PROTECTED: Requires statusSecret authentication (scanner uses this internally)
     if (req.method === 'GET' && path.match(/^\/block\/\d+\/transactions$/)) {
+      if (!authenticated) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized. This endpoint requires authentication.' }))
+        return
+      }
+
       const height = parseInt(path.split('/')[2])
 
       // Validate height
