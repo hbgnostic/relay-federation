@@ -182,36 +182,55 @@ export class BSVNodeClient extends EventEmitter {
    * @param {number} [timeoutMs] — Total timeout (default: retryTimeoutMs * maxRetries)
    * @returns {Promise<{ blockHash, header, transactions: Array<{ txid, rawHex }> }>}
    */
-  async getBlock (blockHash, timeoutMs) {
+  async getBlock (blockHash, timeoutMs = 30000) {
     const peers = this._getConnectedPeers()
     if (peers.length === 0) {
       return Promise.reject(new Error('not connected to BSV node'))
     }
 
-    const maxAttempts = Math.min(this._maxRetries, peers.length)
-    const perAttemptTimeout = this._retryTimeoutMs
-    const errors = []
-
-    // Advance round-robin index for load distribution
-    this._peerIndex = (this._peerIndex + 1) % peers.length
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const peer = this._getPeerAtOffset(attempt)
-      if (!peer) continue
-
-      try {
-        const result = await peer.getBlock(blockHash, perAttemptTimeout)
-        return result
-      } catch (err) {
-        errors.push(`${peer.host}: ${err.message}`)
-        // Continue to next peer
-      }
+    // Request from up to 5 peers in parallel
+    const parallelCount = Math.min(5, peers.length)
+    const selectedPeers = []
+    
+    // Pick peers starting from current round-robin index
+    for (let i = 0; i < parallelCount; i++) {
+      const idx = (this._peerIndex + i) % peers.length
+      selectedPeers.push(peers[idx])
     }
+    
+    // Advance index for next request
+    this._peerIndex = (this._peerIndex + parallelCount) % peers.length
 
-    // All attempts failed
-    return Promise.reject(new Error(
-      `failed to fetch block ${blockHash.slice(0, 16)}... after ${maxAttempts} attempts: ${errors.join('; ')}`
-    ))
+    // Race all requests - first success wins
+    return new Promise((resolve, reject) => {
+      let resolved = false
+      let completed = 0
+      const errors = []
+
+      const tryResolve = (result) => {
+        if (!resolved) {
+          resolved = true
+          resolve(result)
+        }
+      }
+
+      const tryReject = (peer, err) => {
+        errors.push(`${peer.host}: ${err.message}`)
+        completed++
+        if (completed === selectedPeers.length && !resolved) {
+          reject(new Error(
+            `failed to fetch block ${blockHash.slice(0, 16)}... from ${parallelCount} peers: ${errors.join('; ')}`
+          ))
+        }
+      }
+
+      // Fire all requests in parallel
+      for (const peer of selectedPeers) {
+        peer.getBlock(blockHash, timeoutMs)
+          .then(tryResolve)
+          .catch((err) => tryReject(peer, err))
+      }
+    })
   }
 
   /**
